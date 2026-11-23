@@ -1,4 +1,4 @@
-import { i as WebPlugin, r as AdmobConsentStatus } from "./index-CAeBZV6Y.js";
+import { i as WebPlugin, r as AdmobConsentStatus } from "./index-D3H8pOpB.js";
 // node_modules/@capacitor-community/admob/dist/esm/consent/privacy-options-requirement-status.enum.js
 /**
 *  For more information:

@@ -12,8 +12,16 @@ import {
   X,
 } from 'lucide-react';
 import { ACHIEVEMENTS } from '../data/themes';
-import { formatCooldown, getRemainingCooldownMs } from '../services/admob';
-import { getPlayerLevelFromXp } from '../services/playGames';
+import { formatCooldown, getRemainingCooldownMs } from '../utils/admob';
+import {
+  COUNTRY_OPTIONS,
+  getLastIssue,
+  getPlayerLevelFromXp,
+  playGamesStatus,
+  showAchievements,
+  showLeaderboard,
+  signInInteractivePlayGames,
+} from '../utils/playGames';
 import { PlayerProgress } from '../types/game';
 
 interface PlayGamesModalProps {
@@ -45,6 +53,7 @@ export const PlayGamesModal: React.FC<PlayGamesModalProps> = ({
   const [tagDraft, setTagDraft] = useState(progress.gamerTag);
   const [countryDraft, setCountryDraft] = useState(progress.country);
   const [cooldownMs, setCooldownMs] = useState(getRemainingCooldownMs());
+  const [pgStatusText, setPgStatusText] = useState('');
 
   useEffect(() => {
     setTagDraft(progress.gamerTag);
@@ -54,6 +63,7 @@ export const PlayGamesModal: React.FC<PlayGamesModalProps> = ({
   useEffect(() => {
     if (!open) return;
     setCooldownMs(getRemainingCooldownMs());
+    void playGamesStatus().then(setPgStatusText);
     const id = window.setInterval(() => {
       setCooldownMs(getRemainingCooldownMs());
     }, 1000);
@@ -141,11 +151,19 @@ export const PlayGamesModal: React.FC<PlayGamesModalProps> = ({
 
             <button
               type="button"
-              onClick={() =>
-                onUpdateProfile({
-                  playGamesSignedIn: !progress.playGamesSignedIn,
-                })
-              }
+              onClick={async () => {
+                if (!progress.playGamesSignedIn) {
+                  const res = await signInInteractivePlayGames();
+                  onUpdateProfile({
+                    playGamesSignedIn: res.signedIn,
+                    ...(res.playerId ? { gamerId: res.playerId } : {}),
+                    ...(res.displayName ? { gamerTag: res.displayName } : {}),
+                  });
+                  void playGamesStatus().then(setPgStatusText);
+                } else {
+                  onUpdateProfile({ playGamesSignedIn: false });
+                }
+              }}
               className={`px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
                 progress.playGamesSignedIn
                   ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-400/35 hover:bg-emerald-500/25'
@@ -155,6 +173,9 @@ export const PlayGamesModal: React.FC<PlayGamesModalProps> = ({
               {progress.playGamesSignedIn ? 'Signed In' : 'Sign In'}
             </button>
           </div>
+          {pgStatusText && (
+            <p className="text-[11px] text-slate-400">{pgStatusText}</p>
+          )}
 
           {/* XP Progress Bar */}
           <div>
@@ -181,20 +202,23 @@ export const PlayGamesModal: React.FC<PlayGamesModalProps> = ({
               maxLength={20}
               placeholder="Gamer Tag"
               aria-label="Gamer Tag"
-              className="col-span-7 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-400"
+              className="col-span-6 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-400"
             />
-            <input
-              type="text"
+            <select
               value={countryDraft}
-              onChange={(e) => setCountryDraft(e.target.value.toUpperCase())}
-              maxLength={2}
-              placeholder="US"
-              aria-label="Country code"
-              className="col-span-2 px-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-center font-mono text-white focus:outline-none focus:border-emerald-400"
-            />
+              onChange={(e) => setCountryDraft(e.target.value)}
+              aria-label="Country"
+              className="col-span-4 px-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-400"
+            >
+              {COUNTRY_OPTIONS.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.flag} {c.code}
+                </option>
+              ))}
+            </select>
             <button
               type="submit"
-              className="col-span-3 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-bold cursor-pointer"
+              className="col-span-2 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-bold cursor-pointer"
             >
               Save
             </button>
@@ -289,14 +313,44 @@ export const PlayGamesModal: React.FC<PlayGamesModalProps> = ({
 
         {/* Achievements List */}
         <div className="space-y-2.5">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <h3 className="text-sm font-display font-bold text-white flex items-center gap-1.5">
               <Award className="w-4 h-4 text-amber-400" />
               <span>Play Games Achievements</span>
             </h3>
-            <span className="text-xs text-slate-400 tabular-nums">
-              {progress.unlockedAchievements.length} / {ACHIEVEMENTS.length}
-            </span>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await showLeaderboard();
+                  if (!ok) {
+                    setPgStatusText(
+                      `Could not open Leaderboard. ${getLastIssue()}`.trim()
+                    );
+                  }
+                }}
+                className="text-[11px] font-semibold text-cyan-300 hover:text-cyan-200 cursor-pointer"
+              >
+                Leaderboard
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await showAchievements();
+                  if (!ok) {
+                    setPgStatusText(
+                      `Could not open Achievements. ${getLastIssue()}`.trim()
+                    );
+                  }
+                }}
+                className="text-[11px] font-semibold text-emerald-300 hover:text-emerald-200 cursor-pointer"
+              >
+                Achievements
+              </button>
+              <span className="text-xs text-slate-400 tabular-nums">
+                {progress.unlockedAchievements.length} / {ACHIEVEMENTS.length}
+              </span>
+            </div>
           </div>
 
           <div className="space-y-2">

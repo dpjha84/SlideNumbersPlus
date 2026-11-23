@@ -7,14 +7,11 @@ const config: CapacitorConfig = {
   server: {
     androidScheme: 'https',
   },
-  plugins: {
-    AdMob: {
-      initializeForTesting: true,
-    },
-  },
   android: {
     backgroundColor: '#020617',
-    allowMixedContent: false,
+    allowMixedContent: true,
+    captureInput: true,
+    webContentsDebuggingEnabled: false,
   },
 };
 

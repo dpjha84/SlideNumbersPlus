@@ -12955,16 +12955,35 @@ var __vitePreload = function preload(baseModule, deps, importerUrl) {
 	});
 };
 // node_modules/@capacitor-community/admob/dist/esm/index.js
-var AdMob = registerPlugin("AdMob", { web: () => __vitePreload(() => import("./web-CdEowKcK.js").then((m) => new m.AdMobWeb()), []) });
-// src/services/admob.ts
-var INTERSTITIAL_COOLDOWN_MS = 12e4;
-var LAST_INTERSTITIAL_KEY = "slidepulse_last_interstitial_at";
-var ADMOB_ANDROID_IDS = {
+var AdMob = registerPlugin("AdMob", { web: () => __vitePreload(() => import("./web-NFVqeIV2.js").then((m) => new m.AdMobWeb()), []) });
+// src/utils/admob.ts
+/**
+* Native Google AdMob integration (Capacitor).
+* Runs real AdMob SDK calls inside the Android app; in web preview renders graceful
+* interactive banner/interstitial/rewarded UI fallbacks.
+*
+* Design rules:
+*  - Ads are PRELOADED in the background. Tapping Next Level never blocks on network.
+*  - Persistent bottom Banner Ad is shown across every level.
+*  - Interstitials on Next Level are strictly gated by a 2-minute (120,000ms) cooldown.
+*  - Ads default to Google's official TEST units unless production VITE_ADMOB_*_UNIT_ID
+*    values are provided at build time.
+*/
+var TEST = {
 	banner: "ca-app-pub-3940256099942544/6300978111",
 	interstitial: "ca-app-pub-3940256099942544/1033173712",
 	rewarded: "ca-app-pub-3940256099942544/5224354917"
 };
-var admobInitialized = false;
+var IDS = {
+	banner: "ca-app-pub-9351754143985661/2004385260",
+	interstitial: "ca-app-pub-9351754143985661/2391129732",
+	rewarded: "ca-app-pub-9351754143985661/4353544400"
+};
+var isTesting = IDS.banner === TEST.banner && IDS.interstitial === TEST.interstitial && IDS.rewarded === TEST.rewarded;
+var INTERSTITIAL_COOLDOWN_MS = 12e4;
+var LAST_INTERSTITIAL_KEY = "slidepulse_last_interstitial_at";
+var RETRY_MS = 45e3;
+var LOG_MAX = 80;
 var BANNER_CREATIVES = [
 	{
 		id: "ad-metro-architect",
@@ -12988,34 +13007,6 @@ var BANNER_CREATIVES = [
 		accent: "bg-emerald-400 text-slate-950"
 	}
 ];
-async function initializeNativeAdMob() {
-	if (!Capacitor.isNativePlatform() || admobInitialized) return;
-	try {
-		await AdMob.initialize({ initializeForTesting: true });
-		admobInitialized = true;
-		await AdMob.showBanner({
-			adId: ADMOB_ANDROID_IDS.banner,
-			adSize: BannerAdSize.ADAPTIVE_BANNER,
-			position: BannerAdPosition.BOTTOM_CENTER,
-			margin: 0,
-			isTesting: true
-		});
-	} catch {}
-}
-async function showNativeInterstitialIfReady() {
-	if (!Capacitor.isNativePlatform()) return false;
-	try {
-		await AdMob.prepareInterstitial({
-			adId: ADMOB_ANDROID_IDS.interstitial,
-			isTesting: true
-		});
-		await AdMob.showInterstitial();
-		recordInterstitialShown();
-		return true;
-	} catch {
-		return false;
-	}
-}
 function getLastInterstitialTimestamp() {
 	if (typeof window === "undefined") return 0;
 	const raw = window.localStorage.getItem(LAST_INTERSTITIAL_KEY);
@@ -13025,8 +13016,7 @@ function getLastInterstitialTimestamp() {
 function getRemainingCooldownMs(now = Date.now()) {
 	const last = getLastInterstitialTimestamp();
 	if (last === 0) return 0;
-	const elapsed = now - last;
-	return Math.max(0, INTERSTITIAL_COOLDOWN_MS - elapsed);
+	return Math.max(0, INTERSTITIAL_COOLDOWN_MS - (now - last));
 }
 function canShowInterstitial(adsRemoved, now = Date.now()) {
 	if (adsRemoved) return false;
@@ -13040,6 +13030,217 @@ function formatCooldown(ms) {
 	const totalSec = Math.ceil(ms / 1e3);
 	return `${Math.floor(totalSec / 60)}:${(totalSec % 60).toString().padStart(2, "0")}`;
 }
+var AdMobManager = class {
+	constructor() {
+		this.initPromise = null;
+		this.ready = false;
+		this.bannerShown = false;
+		this.bannerRetry = null;
+		this.interstitialLoaded = false;
+		this.interstitialLoading = false;
+		this.interstitialBusy = false;
+		this.interstitialRetry = null;
+		this.rewardedLoaded = false;
+		this.rewardedLoading = false;
+		this.rewardedBusy = false;
+		this.rewardedRetry = null;
+		this.logLines = [];
+		this.logListeners = /* @__PURE__ */ new Set();
+	}
+	isNative() {
+		return Capacitor.isNativePlatform();
+	}
+	log(msg) {
+		const t = /* @__PURE__ */ new Date();
+		const stamp = `${t.getMinutes().toString().padStart(2, "0")}:${t.getSeconds().toString().padStart(2, "0")}.${t.getMilliseconds().toString().padStart(3, "0")}`;
+		this.logLines.push(`${stamp} ${msg}`);
+		if (this.logLines.length > LOG_MAX) this.logLines.shift();
+		this.logListeners.forEach((l) => l());
+	}
+	getLog() {
+		return [...this.logLines];
+	}
+	subscribeLog(l) {
+		this.logListeners.add(l);
+		return () => this.logListeners.delete(l);
+	}
+	online() {
+		return typeof navigator === "undefined" || navigator.onLine !== false;
+	}
+	init() {
+		if (!this.isNative()) return Promise.resolve();
+		if (this.initPromise) return this.initPromise;
+		this.initPromise = (async () => {
+			try {
+				const evs = [
+					...Object.values(InterstitialAdPluginEvents),
+					...Object.values(RewardAdPluginEvents),
+					BannerAdPluginEvents.Loaded,
+					BannerAdPluginEvents.FailedToLoad,
+					BannerAdPluginEvents.Opened,
+					BannerAdPluginEvents.Closed
+				];
+				for (const ev of evs) try {
+					await AdMob.addListener(ev, () => this.log(`event ${ev}`));
+				} catch {}
+				await AdMob.addListener(BannerAdPluginEvents.FailedToLoad, () => {
+					this.bannerShown = false;
+					if (this.bannerRetry) clearTimeout(this.bannerRetry);
+					this.bannerRetry = setTimeout(() => void this.showBanner(), RETRY_MS);
+				});
+				try {
+					const info = await AdMob.requestConsentInfo();
+					if (info.isConsentFormAvailable && info.status === AdmobConsentStatus.REQUIRED) await AdMob.showConsentForm();
+				} catch (e) {
+					this.log(`consent skipped: ${String(e).slice(0, 80)}`);
+				}
+				await AdMob.initialize({ initializeForTesting: isTesting });
+				this.ready = true;
+				this.log(`init ok (testing=${isTesting})`);
+				this.showBanner();
+				this.preloadInterstitial();
+				this.preloadRewarded();
+			} catch (e) {
+				this.log(`init failed: ${String(e).slice(0, 80)}`);
+			}
+		})();
+		return this.initPromise;
+	}
+	async showBanner() {
+		if (!this.isNative() || this.bannerShown) return;
+		await this.init();
+		if (!this.ready || !this.online()) return;
+		try {
+			this.bannerShown = true;
+			await AdMob.showBanner({
+				adId: IDS.banner,
+				adSize: BannerAdSize.ADAPTIVE_BANNER,
+				position: BannerAdPosition.BOTTOM_CENTER,
+				margin: 0,
+				isTesting
+			});
+			this.log("banner requested");
+		} catch (e) {
+			this.bannerShown = false;
+			this.log(`banner failed: ${String(e).slice(0, 80)}`);
+		}
+	}
+	preloadInterstitial() {
+		if (!this.isNative() || !this.ready || this.interstitialLoaded || this.interstitialLoading) return;
+		if (!this.online()) return;
+		this.interstitialLoading = true;
+		AdMob.prepareInterstitial({
+			adId: IDS.interstitial,
+			isTesting
+		}).then(() => {
+			this.interstitialLoaded = true;
+			this.log("interstitial preloaded");
+		}).catch((e) => {
+			this.log(`interstitial preload failed: ${String(e).slice(0, 60)}`);
+			if (this.interstitialRetry) clearTimeout(this.interstitialRetry);
+			this.interstitialRetry = setTimeout(() => this.preloadInterstitial(), RETRY_MS);
+		}).finally(() => {
+			this.interstitialLoading = false;
+		});
+	}
+	async showInterstitial(adsRemoved, onDone) {
+		if (!this.isNative()) return false;
+		if (this.interstitialBusy) {
+			onDone();
+			return true;
+		}
+		if (!canShowInterstitial(adsRemoved)) {
+			onDone();
+			return true;
+		}
+		if (!this.interstitialLoaded) {
+			this.log("interstitial not ready -> skip");
+			this.preloadInterstitial();
+			onDone();
+			return true;
+		}
+		this.interstitialBusy = true;
+		this.interstitialLoaded = false;
+		recordInterstitialShown();
+		let finished = false;
+		const handles = [];
+		const watchdog = setTimeout(() => done(), 6e4);
+		const done = () => {
+			if (finished) return;
+			finished = true;
+			clearTimeout(watchdog);
+			handles.forEach((h) => h.remove());
+			this.interstitialBusy = false;
+			this.preloadInterstitial();
+			onDone();
+		};
+		try {
+			handles.push(await AdMob.addListener(InterstitialAdPluginEvents.Dismissed, done), await AdMob.addListener(InterstitialAdPluginEvents.FailedToShow, done));
+			await AdMob.showInterstitial();
+		} catch (e) {
+			this.log(`interstitial show failed: ${String(e).slice(0, 60)}`);
+			done();
+		}
+		return true;
+	}
+	preloadRewarded() {
+		if (!this.isNative() || !this.ready || this.rewardedLoaded || this.rewardedLoading) return;
+		if (!this.online()) return;
+		this.rewardedLoading = true;
+		AdMob.prepareRewardVideoAd({
+			adId: IDS.rewarded,
+			isTesting
+		}).then(() => {
+			this.rewardedLoaded = true;
+			this.log("rewarded preloaded");
+		}).catch((e) => {
+			this.log(`rewarded preload failed: ${String(e).slice(0, 60)}`);
+			if (this.rewardedRetry) clearTimeout(this.rewardedRetry);
+			this.rewardedRetry = setTimeout(() => this.preloadRewarded(), RETRY_MS);
+		}).finally(() => {
+			this.rewardedLoading = false;
+		});
+	}
+	isRewardedReady() {
+		return !this.isNative() || this.rewardedLoaded;
+	}
+	async showRewarded(onReward, onUnavailable) {
+		if (!this.isNative()) return onReward();
+		if (this.rewardedBusy) return;
+		if (!this.rewardedLoaded) {
+			this.log("rewarded not ready");
+			this.preloadRewarded();
+			return onUnavailable();
+		}
+		this.rewardedBusy = true;
+		this.rewardedLoaded = false;
+		recordInterstitialShown();
+		let rewarded = false;
+		let settled = false;
+		const handles = [];
+		const watchdog = setTimeout(() => finish(false), 12e4);
+		const finish = (ok) => {
+			if (settled) return;
+			settled = true;
+			clearTimeout(watchdog);
+			handles.forEach((h) => h.remove());
+			this.rewardedBusy = false;
+			this.preloadRewarded();
+			if (ok) onReward();
+			else onUnavailable();
+		};
+		try {
+			handles.push(await AdMob.addListener(RewardAdPluginEvents.Rewarded, () => {
+				rewarded = true;
+			}), await AdMob.addListener(RewardAdPluginEvents.Dismissed, () => finish(rewarded)), await AdMob.addListener(RewardAdPluginEvents.FailedToShow, () => finish(false)));
+			await AdMob.showRewardVideoAd();
+		} catch (e) {
+			this.log(`rewarded show failed: ${String(e).slice(0, 60)}`);
+			finish(false);
+		}
+	}
+};
+var adMobManager = new AdMobManager();
 // node_modules/react/cjs/react-jsx-runtime.production.js
 /**
 * @license React
@@ -13699,357 +13900,193 @@ var DailyChallengeView = ({ dateKey, progress, dailyEntries, onStartDaily }) => 
 		})]
 	});
 };
-// src/components/LeaderboardView.tsx
-var LeaderboardView = ({ globalEntries, dailyDateKey, dailyEntries, currentGamerId, loading, onRefresh }) => {
-	const [boardTab, setBoardTab] = (0, import_react.useState)("global");
-	const playerGlobalIdx = globalEntries.findIndex((e) => e.id === currentGamerId);
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-		className: "space-y-5",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
-					className: "text-2xl font-display font-bold text-white flex items-center gap-2",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Globe, { className: "w-6 h-6 text-amber-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Global Leaderboards" })]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "text-sm text-slate-400",
-					children: "Play Games verified standings across worldwide players."
-				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "flex items-center gap-2 self-start",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							onClick: () => setBoardTab("global"),
-							className: `px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${boardTab === "global" ? "bg-slate-800 text-white" : "text-slate-400 hover:text-white"}`,
-							children: "Global Top Scores"
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							onClick: () => setBoardTab("daily"),
-							className: `px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${boardTab === "daily" ? "bg-slate-800 text-white" : "text-slate-400 hover:text-white"}`,
-							children: "Daily Grid"
-						})]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						onClick: onRefresh,
-						"aria-label": "Refresh leaderboards",
-						className: "p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 transition-colors cursor-pointer",
-						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCw, { className: `w-4 h-4 ${loading ? "animate-spin" : ""}` })
-					})]
-				})]
-			}),
-			boardTab === "global" && playerGlobalIdx >= 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "rounded-2xl bg-amber-500/10 border border-amber-400/30 p-4 flex items-center justify-between gap-4",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "flex items-center gap-3",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-						className: "w-9 h-9 rounded-xl bg-amber-400 text-slate-950 font-display font-bold text-sm flex items-center justify-center tabular-nums",
-						children: ["#", playerGlobalIdx + 1]
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-						className: "text-sm font-semibold text-white",
-						children: "Your Global Rank"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-						className: "text-xs text-amber-200/80 tabular-nums",
-						children: [
-							globalEntries[playerGlobalIdx].bestScore.toLocaleString(),
-							" pts ·",
-							" ",
-							globalEntries[playerGlobalIdx].totalStars,
-							" ★ · Level",
-							" ",
-							globalEntries[playerGlobalIdx].highestLevel
-						]
-					})] })]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trophy, { className: "w-5 h-5 text-amber-400 shrink-0" })]
-			}),
-			boardTab === "global" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden",
-				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "overflow-x-auto",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
-						className: "w-full text-left border-collapse",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
-							className: "border-b border-slate-800 text-[11px] font-medium text-slate-400",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4",
-									children: "Rank"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4",
-									children: "Player"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4 text-right",
-									children: "Stars"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4 text-right",
-									children: "Level"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4 text-right",
-									children: "Score"
-								})
-							]
-						}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", {
-							className: "divide-y divide-slate-800/70 text-sm",
-							children: globalEntries.map((entry, idx) => {
-								const isYou = entry.id === currentGamerId;
-								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
-									className: isYou ? "bg-amber-500/10" : "hover:bg-slate-800/35 transition-colors",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "py-3 px-4 font-display font-bold tabular-nums",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-												className: idx === 0 ? "text-amber-400" : idx === 1 ? "text-slate-200" : idx === 2 ? "text-orange-400" : "text-slate-400",
-												children: ["#", idx + 1]
-											})
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "py-3 px-4",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-												className: "flex items-center gap-2.5 min-w-0",
-												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-													className: "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-slate-950 shrink-0",
-													style: { backgroundColor: entry.avatarColor },
-													children: entry.gamerTag.slice(0, 2).toUpperCase()
-												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-													className: "min-w-0",
-													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-														className: "flex items-center gap-1.5",
-														children: [
-															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																className: "font-semibold text-white truncate",
-																children: entry.gamerTag
-															}),
-															isYou && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-																className: "text-[11px] text-amber-400 font-medium",
-																children: "(You)"
-															}),
-															entry.playGamesVerified && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, {
-																className: "w-3.5 h-3.5 text-emerald-400 shrink-0",
-																"aria-label": "Play Games Verified"
-															})
-														]
-													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-														className: "text-xs text-slate-400",
-														children: [
-															entry.country,
-															" · ",
-															entry.dailyClears,
-															" daily clears"
-														]
-													})]
-												})]
-											})
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "py-3 px-4 text-right font-mono tabular-nums text-amber-300",
-											children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-												className: "inline-flex items-center gap-1",
-												children: [entry.totalStars, /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Star, { className: "w-3.5 h-3.5 fill-amber-400 text-amber-400" })]
-											})
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
-											className: "py-3 px-4 text-right font-mono tabular-nums text-slate-300",
-											children: ["Lv.", entry.highestLevel]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "py-3 px-4 text-right font-display font-bold tabular-nums text-white",
-											children: entry.bestScore.toLocaleString()
-										})
-									]
-								}, entry.id);
-							})
-						})]
-					})
-				})
-			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "px-4 py-3 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Daily Seed · ", dailyDateKey] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Ranked by fewest moves, then fastest time" })]
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "overflow-x-auto",
-					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
-						className: "w-full text-left border-collapse",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
-							className: "border-b border-slate-800 text-[11px] font-medium text-slate-400",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4",
-									children: "Rank"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4",
-									children: "Player"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4 text-right",
-									children: "Moves"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4 text-right",
-									children: "Time"
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
-									className: "py-3 px-4 text-right",
-									children: "Stars"
-								})
-							]
-						}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", {
-							className: "divide-y divide-slate-800/70 text-sm",
-							children: dailyEntries.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-								colSpan: 5,
-								className: "py-8 text-center text-sm text-slate-400",
-								children: "No daily scores posted yet today. Claim #1!"
-							}) }) : dailyEntries.map((entry, idx) => {
-								const isYou = entry.id === currentGamerId;
-								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
-									className: isYou ? "bg-cyan-500/10" : "hover:bg-slate-800/35",
-									children: [
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
-											className: "py-3 px-4 font-display font-bold tabular-nums text-slate-300",
-											children: ["#", idx + 1]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
-											className: "py-3 px-4 font-semibold text-white",
-											children: [
-												entry.gamerTag,
-												" ",
-												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-													className: "text-xs font-normal text-slate-400",
-													children: ["· ", entry.country]
-												})
-											]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
-											className: "py-3 px-4 text-right font-mono tabular-nums text-cyan-300",
-											children: entry.moves
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
-											className: "py-3 px-4 text-right font-mono tabular-nums text-slate-300",
-											children: [entry.timeSec, "s"]
-										}),
-										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
-											className: "py-3 px-4 text-right font-mono tabular-nums text-amber-400",
-											children: [entry.stars, "★"]
-										})
-									]
-								}, entry.id);
-							})
-						})]
-					})
-				})]
-			})
-		]
-	});
-};
-// src/components/LevelSelectView.tsx
-var LevelSelectView = ({ progress, activeLevel, onSelectLevel }) => {
-	const maxShown = Math.max(20, progress.highestLevelUnlocked + 2);
-	const levels = Array.from({ length: maxShown }, (_, i) => getLevelDefinition(i + 1));
-	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-		className: "space-y-7",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-			className: "flex flex-col sm:flex-row sm:items-end justify-between gap-3",
-			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
-				className: "text-2xl font-display font-bold text-white",
-				children: "Campaign Stages"
-			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "text-sm text-slate-400",
-				children: "Grid dimensions and scramble depths scale as you advance. Beat Target Moves for 3 Stars."
-			})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "text-xs text-slate-400 tabular-nums",
-				children: ["Total Earned: ", /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-					className: "text-amber-400 font-semibold",
-					children: [progress.currencies.stars, " ★"]
-				})]
-			})]
-		}), [
-			{
-				label: "3×3 Warm-Up",
-				filter: (s) => s === 3
-			},
-			{
-				label: "4×4 Tactical",
-				filter: (s) => s === 4
-			},
-			{
-				label: "5×5 Master",
-				filter: (s) => s === 5
-			},
-			{
-				label: "6×6 Grandmaster",
-				filter: (s) => s >= 6
-			}
-		].map((tier) => {
-			const tierLevels = levels.filter((l) => tier.filter(l.size));
-			if (tierLevels.length === 0) return null;
-			return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-				className: "space-y-3",
-				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
-					className: "text-sm font-display font-semibold text-slate-300 border-b border-slate-800 pb-2",
-					children: tier.label
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3",
-					children: tierLevels.map((lvl) => {
-						const isUnlocked = lvl.level <= progress.highestLevelUnlocked;
-						const stars = progress.levelStars[lvl.level] || 0;
-						const bestMoves = progress.levelBestMoves[lvl.level];
-						const isCurrent = lvl.level === activeLevel;
-						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-							type: "button",
-							disabled: !isUnlocked,
-							onClick: () => onSelectLevel(lvl.level),
-							className: `rounded-2xl p-3.5 border text-left transition-all flex flex-col justify-between gap-2.5 ${!isUnlocked ? "bg-slate-900/40 border-slate-800/70 text-slate-500 cursor-not-allowed" : isCurrent ? "bg-slate-800 border-amber-400/60 shadow-lg shadow-amber-500/10 cursor-pointer" : "bg-slate-900/80 border-slate-800 hover:border-slate-600 cursor-pointer"}`,
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-									className: "flex items-center justify-between gap-2",
-									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-										className: "text-lg font-display font-bold text-white tabular-nums",
-										children: lvl.level
-									}), !isUnlocked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4 text-slate-600" }) : isCurrent ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { className: "w-3.5 h-3.5 text-amber-400 fill-amber-400" }) : null]
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-									className: "text-xs font-medium text-slate-300 truncate",
-									children: lvl.title
-								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-									className: "text-[11px] text-slate-500 tabular-nums mt-0.5",
-									children: [
-										"Par ",
-										lvl.targetMoves,
-										" moves",
-										bestMoves ? ` · Best ${bestMoves}` : ""
-									]
-								})] }),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-									className: "flex items-center gap-1 pt-1",
-									children: [
-										1,
-										2,
-										3
-									].map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Star, { className: `w-3.5 h-3.5 ${s <= stars ? "fill-amber-400 text-amber-400" : "text-slate-700"}` }, s))
-								})
-							]
-						}, lvl.level);
-					})
-				})]
-			}, tier.label);
-		})]
-	});
-};
 // node_modules/capacitor-play-games/src/index.ts
-var PlayGames = registerPlugin("PlayGames", { web: () => __vitePreload(() => import("./web-t9PV0Dtj.js").then((m) => new m.PlayGamesWeb()), []) });
-// src/services/playGames.ts
+var PlayGames = registerPlugin("PlayGames", { web: () => __vitePreload(() => import("./web-DxIXLtB6.js").then((m) => new m.PlayGamesWeb()), []) });
+// src/utils/playGames.ts
 var STORAGE_KEY = "slidepulse_player_progress_v1";
 var GLOBAL_BOARD_KEY = "slidepulse_global_leaderboard_v1";
 var DAILY_BOARD_KEY = "slidepulse_daily_leaderboard_v1";
-var PLAY_GAMES_IDS = {
-	globalLeaderboard: "CgkI_SlidePulse_Global",
-	dailyLeaderboard: "CgkI_SlidePulse_Daily"
+var PLAY_LEADERBOARD_ID = "CgkI_SlidePulse_Global";
+var PLAY_DAILY_LEADERBOARD_ID = "CgkI_SlidePulse_Daily";
+var PLAY_ACHIEVEMENT_IDS = {
+	"first-slide": "ach_first-slide",
+	"par-master": "ach_par-master",
+	"grid-4x4": "ach_grid-4x4",
+	"grid-5x5": "ach_grid-5x5",
+	"daily-runner": "ach_daily-runner",
+	"theme-collector": "ach_theme-collector",
+	"star-hoarder": "ach_star-hoarder",
+	"pure-solve": "ach_pure-solve"
 };
+var native = () => Capacitor.isNativePlatform();
+var lastIssue = "";
+var errText = (e) => (e instanceof Error ? e.message : typeof e === "string" ? e : JSON.stringify(e)) || "unknown error";
+var ready = null;
+function initPlayGames() {
+	if (!native()) return Promise.resolve();
+	if (!ready) ready = (async () => {
+		try {
+			await PlayGames.initialize();
+			const r = await PlayGames.signIn({ silent: true });
+			if (!r.signedIn) lastIssue = `Not signed in (${r.reason ?? "unknown"})`;
+		} catch (e) {
+			lastIssue = errText(e);
+		}
+	})();
+	return ready;
+}
+async function signedIn() {
+	if (!native()) return false;
+	try {
+		await initPlayGames();
+		return (await PlayGames.isSignedIn()).signedIn;
+	} catch {
+		return false;
+	}
+}
+async function signInInteractivePlayGames() {
+	if (!native()) return { signedIn: true };
+	try {
+		await initPlayGames();
+		const res = await PlayGames.signIn({ silent: false });
+		if (!res.signedIn) {
+			lastIssue = `Sign-in not completed (${res.reason ?? "unknown"})`;
+			return { signedIn: false };
+		}
+		return {
+			signedIn: true,
+			playerId: res.player?.playerId,
+			displayName: res.player?.displayName
+		};
+	} catch (e) {
+		lastIssue = errText(e);
+		return { signedIn: false };
+	}
+}
+async function unlockAchievement(localId) {
+	const id = PLAY_ACHIEVEMENT_IDS[localId];
+	if (!id || !await signedIn()) return;
+	try {
+		await PlayGames.unlockAchievement({ id });
+	} catch {}
+}
+async function submitScore(score, leaderboardId = PLAY_LEADERBOARD_ID) {
+	if (!await signedIn()) return;
+	try {
+		await PlayGames.submitScore({
+			leaderboardId,
+			score
+		});
+	} catch {}
+}
+async function showLeaderboard() {
+	if (!native()) return false;
+	try {
+		await initPlayGames();
+		if (!(await PlayGames.isSignedIn()).signedIn) {
+			const r = await PlayGames.signIn({ silent: false });
+			if (!r.signedIn) {
+				lastIssue = `Sign-in not completed (${r.reason ?? "unknown"})`;
+				return false;
+			}
+		}
+		await PlayGames.showLeaderboard({ leaderboardId: PLAY_LEADERBOARD_ID });
+		return true;
+	} catch (e) {
+		lastIssue = errText(e);
+		return false;
+	}
+}
+async function showAchievements() {
+	if (!native()) return false;
+	try {
+		await initPlayGames();
+		if (!(await PlayGames.isSignedIn()).signedIn) {
+			const r = await PlayGames.signIn({ silent: false });
+			if (!r.signedIn) {
+				lastIssue = `Sign-in not completed (${r.reason ?? "unknown"})`;
+				return false;
+			}
+		}
+		await PlayGames.showAchievements();
+		return true;
+	} catch (e) {
+		lastIssue = errText(e);
+		return false;
+	}
+}
+function getLastIssue() {
+	return lastIssue;
+}
+async function playGamesStatus() {
+	if (!native()) return "Play Games: only available in the Android app";
+	try {
+		await initPlayGames();
+		const { signedIn: ok } = await PlayGames.isSignedIn();
+		if (!ok) return `Play Games: not signed in${lastIssue ? ` - ${lastIssue}` : ""}`;
+		const p = await PlayGames.getPlayer();
+		return `Play Games: signed in as ${p.displayName || p.playerId}`;
+	} catch (e) {
+		return `Play Games: error - ${errText(e)}`;
+	}
+}
+async function syncProgress(unlockedIds, score) {
+	if (!await signedIn()) return;
+	for (const id of unlockedIds) await unlockAchievement(id);
+	if (score > 0) await submitScore(score);
+}
+var COUNTRY_OPTIONS = [
+	{
+		code: "US",
+		flag: "🇺🇸",
+		name: "United States"
+	},
+	{
+		code: "GB",
+		flag: "🇬🇧",
+		name: "United Kingdom"
+	},
+	{
+		code: "JP",
+		flag: "🇯🇵",
+		name: "Japan"
+	},
+	{
+		code: "DE",
+		flag: "🇩🇪",
+		name: "Germany"
+	},
+	{
+		code: "BR",
+		flag: "🇧🇷",
+		name: "Brazil"
+	},
+	{
+		code: "KR",
+		flag: "🇰🇷",
+		name: "South Korea"
+	},
+	{
+		code: "CA",
+		flag: "🇨🇦",
+		name: "Canada"
+	},
+	{
+		code: "FR",
+		flag: "🇫🇷",
+		name: "France"
+	},
+	{
+		code: "IN",
+		flag: "🇮🇳",
+		name: "India"
+	},
+	{
+		code: "AU",
+		flag: "🇦🇺",
+		name: "Australia"
+	}
+];
 var AVATAR_COLORS = [
 	"#f59e0b",
 	"#06b6d4",
@@ -14284,14 +14321,6 @@ function saveLocalProgress(progress) {
 		window.localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
 	} catch {}
 }
-async function signInPlayGames() {
-	try {
-		if (Capacitor.isNativePlatform()) return await PlayGames.signIn();
-		return await PlayGames.getPlayerProfile();
-	} catch {
-		return null;
-	}
-}
 function evaluateAchievements(progress, context) {
 	const unlocked = new Set(progress.unlockedAchievements);
 	const newlyUnlocked = [];
@@ -14301,7 +14330,7 @@ function evaluateAchievements(progress, context) {
 		if (def) {
 			unlocked.add(id);
 			newlyUnlocked.push(def);
-			if (Capacitor.isNativePlatform()) PlayGames.unlockAchievement({ achievementId: `ach_${id}` });
+			unlockAchievement(id);
 		}
 	};
 	if (context.level >= 1) grant("first-slide");
@@ -14325,12 +14354,7 @@ function getPlayerLevelFromXp(xp) {
 async function syncProfileToCloud(progress) {
 	saveLocalProgress(progress);
 	if (!progress.playGamesSignedIn) return null;
-	if (Capacitor.isNativePlatform()) try {
-		await PlayGames.submitScore({
-			leaderboardId: PLAY_GAMES_IDS.globalLeaderboard,
-			score: progress.totalScore
-		});
-	} catch {}
+	await syncProgress(progress.unlockedAchievements, progress.totalScore);
 	return (/* @__PURE__ */ new Date()).toISOString();
 }
 async function fetchLeaderboards() {
@@ -14397,12 +14421,7 @@ async function submitGlobalScore(progress, bestDailyMoves = null) {
 	else list.push(entry);
 	const sorted = list.sort((a, b) => b.bestScore - a.bestScore);
 	if (typeof window !== "undefined") window.localStorage.setItem(GLOBAL_BOARD_KEY, JSON.stringify(sorted));
-	if (Capacitor.isNativePlatform() && progress.playGamesSignedIn) try {
-		await PlayGames.submitScore({
-			leaderboardId: PLAY_GAMES_IDS.globalLeaderboard,
-			score: progress.totalScore
-		});
-	} catch {}
+	if (progress.playGamesSignedIn) await submitScore(progress.totalScore, PLAY_LEADERBOARD_ID);
 	return {
 		rank: sorted.findIndex((e) => e.id === progress.gamerId) + 1,
 		global: sorted.slice(0, 50)
@@ -14434,6 +14453,7 @@ async function submitDailyScore(progress, moves, timeSec, stars) {
 		entries: sorted
 	};
 	if (typeof window !== "undefined") window.localStorage.setItem(DAILY_BOARD_KEY, JSON.stringify(payload));
+	if (progress.playGamesSignedIn) await submitScore(moves, PLAY_DAILY_LEADERBOARD_ID);
 	return {
 		rank: sorted.findIndex((e) => e.id === progress.gamerId) + 1,
 		daily: {
@@ -14442,6 +14462,448 @@ async function submitDailyScore(progress, moves, timeSec, stars) {
 		}
 	};
 }
+// src/components/LeaderboardView.tsx
+var LeaderboardView = ({ globalEntries, dailyDateKey, dailyEntries, progress, loading, onRefresh }) => {
+	const [boardTab, setBoardTab] = (0, import_react.useState)("global");
+	const [pgMsg, setPgMsg] = (0, import_react.useState)(null);
+	const [pgStatus, setPgStatus] = (0, import_react.useState)("Play Games: checking...");
+	(0, import_react.useEffect)(() => {
+		playGamesStatus().then(setPgStatus);
+	}, [pgMsg]);
+	const playerGlobalIdx = globalEntries.findIndex((e) => e.id === progress.gamerId);
+	const clearedLevelsCount = Object.keys(progress.levelStars).length;
+	const handleOpenPlayGamesLeaderboard = async () => {
+		const ok = await showLeaderboard();
+		setPgMsg(ok ? null : `Could not open Google Play Games. ${getLastIssue()}`.trim());
+	};
+	const handleOpenPlayGamesAchievements = async () => {
+		const ok = await showAchievements();
+		setPgMsg(ok ? null : `Could not open Google Play Games. ${getLastIssue()}`.trim());
+	};
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+		className: "space-y-5",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h2", {
+					className: "text-2xl font-display font-bold text-white flex items-center gap-2",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Globe, { className: "w-6 h-6 text-amber-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Global Leaderboards & Stats" })]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "text-sm text-slate-400",
+					children: "Play Games verified standings across worldwide players."
+				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-2 self-start",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "flex items-center gap-1 p-1 rounded-xl bg-slate-900 border border-slate-800",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => setBoardTab("global"),
+							className: `px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${boardTab === "global" ? "bg-slate-800 text-white" : "text-slate-400 hover:text-white"}`,
+							children: "Global Top Scores"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							onClick: () => setBoardTab("daily"),
+							className: `px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap cursor-pointer ${boardTab === "daily" ? "bg-slate-800 text-white" : "text-slate-400 hover:text-white"}`,
+							children: "Daily Grid"
+						})]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						onClick: onRefresh,
+						"aria-label": "Refresh leaderboards",
+						className: "p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 transition-colors cursor-pointer",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RefreshCw, { className: `w-4 h-4 ${loading ? "animate-spin" : ""}` })
+					})]
+				})]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-2xl bg-slate-900/85 border border-slate-800 p-4 space-y-3.5",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "grid grid-cols-2 sm:grid-cols-4 gap-2.5",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "rounded-xl bg-slate-950/80 border border-slate-800 p-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-400",
+									children: "Levels Cleared"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-lg font-display font-bold text-white tabular-nums",
+									children: clearedLevelsCount
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "rounded-xl bg-slate-950/80 border border-slate-800 p-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-400",
+									children: "Total Stars"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-lg font-display font-bold text-amber-300 flex items-center gap-1 tabular-nums",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Star, { className: "w-4 h-4 fill-amber-400 text-amber-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: progress.currencies.stars })]
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "rounded-xl bg-slate-950/80 border border-slate-800 p-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-400",
+									children: "Total Score"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-lg font-display font-bold text-emerald-300 tabular-nums",
+									children: progress.totalScore.toLocaleString()
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "rounded-xl bg-slate-950/80 border border-slate-800 p-3",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-[11px] text-slate-400",
+									children: "Daily & Trophies"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-lg font-display font-bold text-cyan-300 flex items-center gap-1.5 tabular-nums",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Flame, { className: "w-4 h-4 text-orange-400" }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [progress.dailyStreak, "d"] }),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+											className: "text-xs text-slate-500",
+											children: "·"
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+											className: "text-sm text-slate-200",
+											children: [
+												progress.unlockedAchievements.length,
+												"/",
+												ACHIEVEMENTS.length
+											]
+										})
+									]
+								})]
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "grid grid-cols-1 sm:grid-cols-2 gap-2.5",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							onClick: handleOpenPlayGamesLeaderboard,
+							className: "w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-105 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Globe, { className: "w-4 h-4" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Global Leaderboard (Play Games)" })]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							onClick: handleOpenPlayGamesAchievements,
+							className: "w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Award, { className: "w-4 h-4 text-amber-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Play Games Achievements" })]
+						})]
+					}),
+					pgMsg && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-center text-xs text-amber-300 break-words",
+						children: pgMsg
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-center text-[11px] text-slate-400 break-words",
+						children: pgStatus
+					})
+				]
+			}),
+			boardTab === "global" && playerGlobalIdx >= 0 && /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-2xl bg-amber-500/10 border border-amber-400/30 p-4 flex items-center justify-between gap-4",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "flex items-center gap-3",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+						className: "w-9 h-9 rounded-xl bg-amber-400 text-slate-950 font-display font-bold text-sm flex items-center justify-center tabular-nums",
+						children: ["#", playerGlobalIdx + 1]
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "text-sm font-semibold text-white",
+						children: "Your Global Standing"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "text-xs text-amber-200/80 tabular-nums",
+						children: [
+							globalEntries[playerGlobalIdx].bestScore.toLocaleString(),
+							" pts ·",
+							" ",
+							globalEntries[playerGlobalIdx].totalStars,
+							" ★ · Level",
+							" ",
+							globalEntries[playerGlobalIdx].highestLevel
+						]
+					})] })]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trophy, { className: "w-5 h-5 text-amber-400 shrink-0" })]
+			}),
+			boardTab === "global" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+				className: "rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "overflow-x-auto",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+						className: "w-full text-left border-collapse",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+							className: "border-b border-slate-800 text-[11px] font-medium text-slate-400",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4",
+									children: "Rank"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4",
+									children: "Player"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4 text-right",
+									children: "Stars"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4 text-right",
+									children: "Level"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4 text-right",
+									children: "Score"
+								})
+							]
+						}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", {
+							className: "divide-y divide-slate-800/70 text-sm",
+							children: globalEntries.map((entry, idx) => {
+								const isYou = entry.id === progress.gamerId;
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: isYou ? "bg-amber-500/10" : "hover:bg-slate-800/35 transition-colors",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "py-3 px-4 font-display font-bold tabular-nums",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: idx === 0 ? "text-amber-400" : idx === 1 ? "text-slate-200" : idx === 2 ? "text-orange-400" : "text-slate-400",
+												children: ["#", idx + 1]
+											})
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "py-3 px-4",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+												className: "flex items-center gap-2.5 min-w-0",
+												children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+													className: "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-slate-950 shrink-0",
+													style: { backgroundColor: entry.avatarColor },
+													children: entry.gamerTag.slice(0, 2).toUpperCase()
+												}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+													className: "min-w-0",
+													children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+														className: "flex items-center gap-1.5",
+														children: [
+															/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "font-semibold text-white truncate",
+																children: entry.gamerTag
+															}),
+															isYou && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+																className: "text-[11px] text-amber-400 font-medium",
+																children: "(You)"
+															}),
+															entry.playGamesVerified && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShieldCheck, {
+																className: "w-3.5 h-3.5 text-emerald-400 shrink-0",
+																"aria-label": "Play Games Verified"
+															})
+														]
+													}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+														className: "text-xs text-slate-400",
+														children: [
+															entry.country,
+															" · ",
+															entry.dailyClears,
+															" daily clears"
+														]
+													})]
+												})]
+											})
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "py-3 px-4 text-right font-mono tabular-nums text-amber-300",
+											children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+												className: "inline-flex items-center gap-1",
+												children: [entry.totalStars, /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Star, { className: "w-3.5 h-3.5 fill-amber-400 text-amber-400" })]
+											})
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+											className: "py-3 px-4 text-right font-mono tabular-nums text-slate-300",
+											children: ["Lv.", entry.highestLevel]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "py-3 px-4 text-right font-display font-bold tabular-nums text-white",
+											children: entry.bestScore.toLocaleString()
+										})
+									]
+								}, entry.id);
+							})
+						})]
+					})
+				})
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "px-4 py-3 border-b border-slate-800 flex items-center justify-between text-xs text-slate-400",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Daily Seed · ", dailyDateKey] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Ranked by fewest moves, then fastest time" })]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "overflow-x-auto",
+					children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+						className: "w-full text-left border-collapse",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+							className: "border-b border-slate-800 text-[11px] font-medium text-slate-400",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4",
+									children: "Rank"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4",
+									children: "Player"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4 text-right",
+									children: "Moves"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4 text-right",
+									children: "Time"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {
+									className: "py-3 px-4 text-right",
+									children: "Stars"
+								})
+							]
+						}) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", {
+							className: "divide-y divide-slate-800/70 text-sm",
+							children: dailyEntries.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tr", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+								colSpan: 5,
+								className: "py-8 text-center text-sm text-slate-400",
+								children: "No daily scores posted yet today. Claim #1!"
+							}) }) : dailyEntries.map((entry, idx) => {
+								const isYou = entry.id === progress.gamerId;
+								return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", {
+									className: isYou ? "bg-cyan-500/10" : "hover:bg-slate-800/35",
+									children: [
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+											className: "py-3 px-4 font-display font-bold tabular-nums text-slate-300",
+											children: ["#", idx + 1]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+											className: "py-3 px-4 font-semibold text-white",
+											children: [
+												entry.gamerTag,
+												" ",
+												/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+													className: "text-xs font-normal text-slate-400",
+													children: ["· ", entry.country]
+												})
+											]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", {
+											className: "py-3 px-4 text-right font-mono tabular-nums text-cyan-300",
+											children: entry.moves
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+											className: "py-3 px-4 text-right font-mono tabular-nums text-slate-300",
+											children: [entry.timeSec, "s"]
+										}),
+										/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", {
+											className: "py-3 px-4 text-right font-mono tabular-nums text-amber-400",
+											children: [entry.stars, "★"]
+										})
+									]
+								}, entry.id);
+							})
+						})]
+					})
+				})]
+			})
+		]
+	});
+};
+// src/components/LevelSelectView.tsx
+var LevelSelectView = ({ progress, activeLevel, onSelectLevel }) => {
+	const maxShown = Math.max(20, progress.highestLevelUnlocked + 2);
+	const levels = Array.from({ length: maxShown }, (_, i) => getLevelDefinition(i + 1));
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+		className: "space-y-7",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "flex flex-col sm:flex-row sm:items-end justify-between gap-3",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+				className: "text-2xl font-display font-bold text-white",
+				children: "Campaign Stages"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "text-sm text-slate-400",
+				children: "Grid dimensions and scramble depths scale as you advance. Beat Target Moves for 3 Stars."
+			})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "text-xs text-slate-400 tabular-nums",
+				children: ["Total Earned: ", /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+					className: "text-amber-400 font-semibold",
+					children: [progress.currencies.stars, " ★"]
+				})]
+			})]
+		}), [
+			{
+				label: "3×3 Warm-Up",
+				filter: (s) => s === 3
+			},
+			{
+				label: "4×4 Tactical",
+				filter: (s) => s === 4
+			},
+			{
+				label: "5×5 Master",
+				filter: (s) => s === 5
+			},
+			{
+				label: "6×6 Grandmaster",
+				filter: (s) => s >= 6
+			}
+		].map((tier) => {
+			const tierLevels = levels.filter((l) => tier.filter(l.size));
+			if (tierLevels.length === 0) return null;
+			return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "space-y-3",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h3", {
+					className: "text-sm font-display font-semibold text-slate-300 border-b border-slate-800 pb-2",
+					children: tier.label
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+					className: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3",
+					children: tierLevels.map((lvl) => {
+						const isUnlocked = lvl.level <= progress.highestLevelUnlocked;
+						const stars = progress.levelStars[lvl.level] || 0;
+						const bestMoves = progress.levelBestMoves[lvl.level];
+						const isCurrent = lvl.level === activeLevel;
+						return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							disabled: !isUnlocked,
+							onClick: () => onSelectLevel(lvl.level),
+							className: `rounded-2xl p-3.5 border text-left transition-all flex flex-col justify-between gap-2.5 ${!isUnlocked ? "bg-slate-900/40 border-slate-800/70 text-slate-500 cursor-not-allowed" : isCurrent ? "bg-slate-800 border-amber-400/60 shadow-lg shadow-amber-500/10 cursor-pointer" : "bg-slate-900/80 border-slate-800 hover:border-slate-600 cursor-pointer"}`,
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "flex items-center justify-between gap-2",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "text-lg font-display font-bold text-white tabular-nums",
+										children: lvl.level
+									}), !isUnlocked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Lock, { className: "w-4 h-4 text-slate-600" }) : isCurrent ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Play, { className: "w-3.5 h-3.5 text-amber-400 fill-amber-400" }) : null]
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "text-xs font-medium text-slate-300 truncate",
+									children: lvl.title
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+									className: "text-[11px] text-slate-500 tabular-nums mt-0.5",
+									children: [
+										"Par ",
+										lvl.targetMoves,
+										" moves",
+										bestMoves ? ` · Best ${bestMoves}` : ""
+									]
+								})] }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+									className: "flex items-center gap-1 pt-1",
+									children: [
+										1,
+										2,
+										3
+									].map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Star, { className: `w-3.5 h-3.5 ${s <= stars ? "fill-amber-400 text-amber-400" : "text-slate-700"}` }, s))
+								})
+							]
+						}, lvl.level);
+					})
+				})]
+			}, tier.label);
+		})]
+	});
+};
 // src/components/PlayGamesModal.tsx
 var AVATAR_SWATCHES = [
 	"#f59e0b",
@@ -14455,6 +14917,7 @@ var PlayGamesModal = ({ open, progress, syncing, onClose, onUpdateProfile, onMan
 	const [tagDraft, setTagDraft] = (0, import_react.useState)(progress.gamerTag);
 	const [countryDraft, setCountryDraft] = (0, import_react.useState)(progress.country);
 	const [cooldownMs, setCooldownMs] = (0, import_react.useState)(getRemainingCooldownMs());
+	const [pgStatusText, setPgStatusText] = (0, import_react.useState)("");
 	(0, import_react.useEffect)(() => {
 		setTagDraft(progress.gamerTag);
 		setCountryDraft(progress.country);
@@ -14466,6 +14929,7 @@ var PlayGamesModal = ({ open, progress, syncing, onClose, onUpdateProfile, onMan
 	(0, import_react.useEffect)(() => {
 		if (!open) return;
 		setCooldownMs(getRemainingCooldownMs());
+		playGamesStatus().then(setPgStatusText);
 		const id = window.setInterval(() => {
 			setCooldownMs(getRemainingCooldownMs());
 		}, 1e3);
@@ -14540,10 +15004,24 @@ var PlayGamesModal = ({ open, progress, syncing, onClose, onUpdateProfile, onMan
 								})] })]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								onClick: () => onUpdateProfile({ playGamesSignedIn: !progress.playGamesSignedIn }),
+								onClick: async () => {
+									if (!progress.playGamesSignedIn) {
+										const res = await signInInteractivePlayGames();
+										onUpdateProfile({
+											playGamesSignedIn: res.signedIn,
+											...res.playerId ? { gamerId: res.playerId } : {},
+											...res.displayName ? { gamerTag: res.displayName } : {}
+										});
+										playGamesStatus().then(setPgStatusText);
+									} else onUpdateProfile({ playGamesSignedIn: false });
+								},
 								className: `px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${progress.playGamesSignedIn ? "bg-emerald-500/15 text-emerald-300 border border-emerald-400/35 hover:bg-emerald-500/25" : "bg-slate-800 text-slate-200 hover:bg-slate-700"}`,
 								children: progress.playGamesSignedIn ? "Signed In" : "Sign In"
 							})]
+						}),
+						pgStatusText && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "text-[11px] text-slate-400",
+							children: pgStatusText
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "flex justify-between text-[11px] text-slate-400 mb-1 tabular-nums",
@@ -14575,20 +15053,25 @@ var PlayGamesModal = ({ open, progress, syncing, onClose, onUpdateProfile, onMan
 									maxLength: 20,
 									placeholder: "Gamer Tag",
 									"aria-label": "Gamer Tag",
-									className: "col-span-7 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-400"
+									className: "col-span-6 px-3 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-400"
 								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									type: "text",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
 									value: countryDraft,
-									onChange: (e) => setCountryDraft(e.target.value.toUpperCase()),
-									maxLength: 2,
-									placeholder: "US",
-									"aria-label": "Country code",
-									className: "col-span-2 px-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-center font-mono text-white focus:outline-none focus:border-emerald-400"
+									onChange: (e) => setCountryDraft(e.target.value),
+									"aria-label": "Country",
+									className: "col-span-4 px-2 py-2 rounded-xl bg-slate-900 border border-slate-700 text-xs text-white focus:outline-none focus:border-emerald-400",
+									children: COUNTRY_OPTIONS.map((c) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("option", {
+										value: c.code,
+										children: [
+											c.flag,
+											" ",
+											c.code
+										]
+									}, c.code))
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 									type: "submit",
-									className: "col-span-3 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-bold cursor-pointer",
+									className: "col-span-2 py-2 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-slate-950 text-xs font-bold cursor-pointer",
 									children: "Save"
 								})
 							]
@@ -14651,16 +15134,37 @@ var PlayGamesModal = ({ open, progress, syncing, onClose, onUpdateProfile, onMan
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "space-y-2.5",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "flex items-center justify-between",
+						className: "flex items-center justify-between gap-2",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h3", {
 							className: "text-sm font-display font-bold text-white flex items-center gap-1.5",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Award, { className: "w-4 h-4 text-amber-400" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Play Games Achievements" })]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
-							className: "text-xs text-slate-400 tabular-nums",
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "flex items-center gap-3",
 							children: [
-								progress.unlockedAchievements.length,
-								" / ",
-								ACHIEVEMENTS.length
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: async () => {
+										if (!await showLeaderboard()) setPgStatusText(`Could not open Leaderboard. ${getLastIssue()}`.trim());
+									},
+									className: "text-[11px] font-semibold text-cyan-300 hover:text-cyan-200 cursor-pointer",
+									children: "Leaderboard"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									onClick: async () => {
+										if (!await showAchievements()) setPgStatusText(`Could not open Achievements. ${getLastIssue()}`.trim());
+									},
+									className: "text-[11px] font-semibold text-emerald-300 hover:text-emerald-200 cursor-pointer",
+									children: "Achievements"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "text-xs text-slate-400 tabular-nums",
+									children: [
+										progress.unlockedAchievements.length,
+										" / ",
+										ACHIEVEMENTS.length
+									]
+								})
 							]
 						})]
 					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -24585,8 +25089,8 @@ var NotificationType;
 	NotificationType["Error"] = "ERROR";
 })(NotificationType || (NotificationType = {}));
 // node_modules/@capacitor/haptics/dist/esm/index.js
-var Haptics = registerPlugin("Haptics", { web: () => __vitePreload(() => import("./web-DIWdO-dN.js").then((m) => new m.HapticsWeb()), []) });
-// src/services/feedback.ts
+var Haptics = registerPlugin("Haptics", { web: () => __vitePreload(() => import("./web-BR2nteVp.js").then((m) => new m.HapticsWeb()), []) });
+// src/utils/feedback.ts
 var audioCtx = null;
 function getAudioContext() {
 	if (typeof window === "undefined") return null;
@@ -24703,6 +25207,8 @@ function getTodayDateKey() {
 }
 function App() {
 	const [progress, setProgress] = (0, import_react.useState)(() => loadLocalProgress());
+	const progressRef = (0, import_react.useRef)(progress);
+	progressRef.current = progress;
 	const [activeTab, setActiveTab] = (0, import_react.useState)("play");
 	const [activeLevel, setActiveLevel] = (0, import_react.useState)(() => loadLocalProgress().highestLevelUnlocked);
 	const [isDailyMode, setIsDailyMode] = (0, import_react.useState)(false);
@@ -24759,8 +25265,9 @@ function App() {
 	}, []);
 	(0, import_react.useEffect)(() => {
 		refreshLeaderboards();
-		initializeNativeAdMob();
-		signInPlayGames();
+		adMobManager.init();
+		initPlayGames();
+		syncProgress(progressRef.current.unlockedAchievements, progressRef.current.totalScore);
 	}, [refreshLeaderboards]);
 	(0, import_react.useEffect)(() => {
 		if (!hasStartedMoving || victoryResult || activeTab !== "play") return;
@@ -24819,40 +25326,39 @@ function App() {
 		});
 		const achievementDiamonds = newlyUnlockedAchievements.reduce((acc, a) => acc + a.rewardDiamonds, 0);
 		const achievementXp = newlyUnlockedAchievements.reduce((acc, a) => acc + a.xp, 0);
-		let nextProgress;
-		setProgress((prev) => {
-			const nextLevelStars = { ...prev.levelStars };
-			const nextBestMoves = { ...prev.levelBestMoves };
-			if (!isDailyMode) {
-				nextLevelStars[def.level] = Math.max(prev.levelStars[def.level] || 0, starsEarned);
-				const prevBest = prev.levelBestMoves[def.level];
-				nextBestMoves[def.level] = prevBest !== void 0 ? Math.min(prevBest, finalMoves) : finalMoves;
-			}
-			const completedDailies = new Set(prev.completedDailyDates);
-			const isNewDailyToday = isDailyMode && !completedDailies.has(dailyDateKey);
-			if (isDailyMode) completedDailies.add(dailyDateKey);
-			nextProgress = {
-				...prev,
-				xp: prev.xp + 75 + starsEarned * 30 + achievementXp,
-				highestLevelUnlocked: isDailyMode ? prev.highestLevelUnlocked : Math.max(prev.highestLevelUnlocked, def.level + 1),
-				levelStars: nextLevelStars,
-				levelBestMoves: nextBestMoves,
-				totalScore: prev.totalScore + scoreEarned,
-				currencies: {
-					stars: prev.currencies.stars + bonusStarsEarned,
-					coins: prev.currencies.coins + coinsEarned,
-					diamonds: prev.currencies.diamonds + diamondsEarned + achievementDiamonds
-				},
-				inventory: {
-					...prev.inventory,
-					doubleCoinsTurns: Math.max(0, prev.inventory.doubleCoinsTurns - 1)
-				},
-				unlockedAchievements: [.../* @__PURE__ */ new Set([...prev.unlockedAchievements, ...newlyUnlockedAchievements.map((a) => a.id)])],
-				dailyStreak: isNewDailyToday ? prev.dailyStreak + 1 : prev.dailyStreak,
-				completedDailyDates: Array.from(completedDailies)
-			};
-			return nextProgress;
-		});
+		const prevSnapshot = progressRef.current;
+		const nextLevelStars = { ...prevSnapshot.levelStars };
+		const nextBestMoves = { ...prevSnapshot.levelBestMoves };
+		if (!isDailyMode) {
+			nextLevelStars[def.level] = Math.max(prevSnapshot.levelStars[def.level] || 0, starsEarned);
+			const prevBest = prevSnapshot.levelBestMoves[def.level];
+			nextBestMoves[def.level] = prevBest !== void 0 ? Math.min(prevBest, finalMoves) : finalMoves;
+		}
+		const completedDailies = new Set(prevSnapshot.completedDailyDates);
+		const isNewDailyToday = isDailyMode && !completedDailies.has(dailyDateKey);
+		if (isDailyMode) completedDailies.add(dailyDateKey);
+		const nextProgress = {
+			...prevSnapshot,
+			xp: prevSnapshot.xp + 75 + starsEarned * 30 + achievementXp,
+			highestLevelUnlocked: isDailyMode ? prevSnapshot.highestLevelUnlocked : Math.max(prevSnapshot.highestLevelUnlocked, def.level + 1),
+			levelStars: nextLevelStars,
+			levelBestMoves: nextBestMoves,
+			totalScore: prevSnapshot.totalScore + scoreEarned,
+			currencies: {
+				stars: prevSnapshot.currencies.stars + bonusStarsEarned,
+				coins: prevSnapshot.currencies.coins + coinsEarned,
+				diamonds: prevSnapshot.currencies.diamonds + diamondsEarned + achievementDiamonds
+			},
+			inventory: {
+				...prevSnapshot.inventory,
+				doubleCoinsTurns: Math.max(0, prevSnapshot.inventory.doubleCoinsTurns - 1)
+			},
+			unlockedAchievements: [.../* @__PURE__ */ new Set([...prevSnapshot.unlockedAchievements, ...newlyUnlockedAchievements.map((a) => a.id)])],
+			dailyStreak: isNewDailyToday ? prevSnapshot.dailyStreak + 1 : prevSnapshot.dailyStreak,
+			completedDailyDates: Array.from(completedDailies)
+		};
+		progressRef.current = nextProgress;
+		setProgress(nextProgress);
 		setVictoryResult({
 			level: def.level,
 			isDaily: isDailyMode,
@@ -24868,7 +25374,6 @@ function App() {
 			newlyUnlockedAchievements
 		});
 		window.setTimeout(async () => {
-			if (!nextProgress) return;
 			const globalRes = await submitGlobalScore(nextProgress, isDailyMode ? finalMoves : null);
 			if (globalRes) setGlobalEntries(globalRes.global);
 			if (isDailyMode) {
@@ -25081,7 +25586,9 @@ function App() {
 		}
 		const nextLvl = activeLevel + 1;
 		if (canShowInterstitial(progress.adsRemoved)) {
-			if (await showNativeInterstitialIfReady()) startBoard(nextLvl, false);
+			if (adMobManager.isNative()) await adMobManager.showInterstitial(progress.adsRemoved, () => {
+				startBoard(nextLvl, false);
+			});
 			else {
 				setPendingNextLevel(nextLvl);
 				setInterstitialOpen(true);
@@ -25142,14 +25649,18 @@ function App() {
 			return;
 		}
 		setProgress((prev) => {
+			const nextUnlocked = [...prev.unlockedThemes, themeId];
+			const shouldGrantThemeAch = nextUnlocked.length > 1 && !prev.unlockedAchievements.includes("theme-collector");
+			if (shouldGrantThemeAch) unlockAchievement("theme-collector");
 			return {
 				...prev,
 				currencies: {
 					...prev.currencies,
 					diamonds: prev.currencies.diamonds - theme.priceDiamonds
 				},
-				unlockedThemes: [...prev.unlockedThemes, themeId],
-				activeTheme: themeId
+				unlockedThemes: nextUnlocked,
+				activeTheme: themeId,
+				unlockedAchievements: shouldGrantThemeAch ? [...prev.unlockedAchievements, "theme-collector"] : prev.unlockedAchievements
 			};
 		});
 		triggerHaptic("win", progress.hapticsEnabled);
@@ -25185,22 +25696,7 @@ function App() {
 		playGameSound("unlock", progress.soundEnabled, activeTheme.soundProfile);
 		showToast(`Unlocked ${skin.name}`);
 	};
-	const handleRewardedDoubleVictory = () => {
-		return new Promise((resolve) => {
-			if (!victoryResult) {
-				resolve();
-				return;
-			}
-			rewardedResolveRef.current = resolve;
-			setRewardedAdContext({
-				type: "victory",
-				amount: victoryResult.diamondsEarned
-			});
-		});
-	};
-	const handleClaimRewardedAd = () => {
-		if (!rewardedAdContext) return;
-		const amount = rewardedAdContext.type === "store" ? 15 : rewardedAdContext.amount;
+	const grantDiamonds = (0, import_react.useCallback)((amount) => {
 		setProgress((prev) => ({
 			...prev,
 			currencies: {
@@ -25210,6 +25706,46 @@ function App() {
 		}));
 		playGameSound("coin", progress.soundEnabled, activeTheme.soundProfile);
 		showToast(`+${amount} Diamonds claimed`);
+	}, [
+		progress.soundEnabled,
+		activeTheme.soundProfile,
+		showToast
+	]);
+	const handleRewardedDoubleVictory = () => {
+		return new Promise((resolve) => {
+			if (!victoryResult) {
+				resolve();
+				return;
+			}
+			const bonus = victoryResult.diamondsEarned;
+			if (adMobManager.isNative()) {
+				adMobManager.showRewarded(() => {
+					grantDiamonds(bonus);
+					resolve();
+				}, () => {
+					showToast("Rewarded video still loading — try again in a moment");
+					resolve();
+				});
+				return;
+			}
+			rewardedResolveRef.current = resolve;
+			setRewardedAdContext({
+				type: "victory",
+				amount: bonus
+			});
+		});
+	};
+	const handleStoreRewardedDiamonds = () => {
+		if (adMobManager.isNative()) {
+			adMobManager.showRewarded(() => grantDiamonds(15), () => showToast("Rewarded video still loading — try again in a moment"));
+			return;
+		}
+		setRewardedAdContext({ type: "store" });
+	};
+	const handleClaimRewardedAd = () => {
+		if (!rewardedAdContext) return;
+		const amount = rewardedAdContext.type === "store" ? 15 : rewardedAdContext.amount;
+		grantDiamonds(amount);
 		setRewardedAdContext(null);
 		if (rewardedResolveRef.current) {
 			rewardedResolveRef.current();
@@ -25739,19 +26275,19 @@ function App() {
 						onBuyPowerUp: handleBuyPowerUp,
 						onUnlockOrEquipTheme: handleUnlockOrEquipTheme,
 						onUnlockOrEquipSkin: handleUnlockOrEquipSkin,
-						onWatchRewardedDiamonds: () => setRewardedAdContext({ type: "store" })
+						onWatchRewardedDiamonds: handleStoreRewardedDiamonds
 					}),
 					activeTab === "leaderboard" && /* @__PURE__ */ (0, import_jsx_runtime.jsx)(LeaderboardView, {
 						globalEntries,
 						dailyDateKey,
 						dailyEntries,
-						currentGamerId: progress.gamerId,
+						progress,
 						loading: loadingBoards,
 						onRefresh: refreshLeaderboards
 					})
 				]
 			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+			!adMobManager.isNative() && /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "fixed bottom-0 inset-x-0 z-30",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AdMobBanner, {
 					levelContext: activeLevel,
@@ -25793,10 +26329,17 @@ function App() {
 				progress,
 				syncing: syncingProfile,
 				onClose: () => setPlayGamesModalOpen(false),
-				onUpdateProfile: (patch) => setProgress((prev) => ({
-					...prev,
-					...patch
-				})),
+				onUpdateProfile: (patch) => {
+					const updated = {
+						...progressRef.current,
+						...patch
+					};
+					progressRef.current = updated;
+					setProgress(updated);
+					if (updated.totalScore > 0) submitGlobalScore(updated).then((res) => {
+						if (res) setGlobalEntries(res.global);
+					});
+				},
 				onManualSync: handleManualSync
 			})
 		]

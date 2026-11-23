@@ -1,12 +1,23 @@
-import React, { useState } from 'react';
-import { Globe, RefreshCw, ShieldCheck, Star, Trophy } from 'lucide-react';
-import { DailyLeaderboardEntry, LeaderboardEntry } from '../types/game';
+import React, { useEffect, useState } from 'react';
+import { Award, Flame, Globe, RefreshCw, ShieldCheck, Star, Trophy } from 'lucide-react';
+import { ACHIEVEMENTS } from '../data/themes';
+import {
+  DailyLeaderboardEntry,
+  LeaderboardEntry,
+  PlayerProgress,
+} from '../types/game';
+import {
+  getLastIssue,
+  playGamesStatus,
+  showAchievements,
+  showLeaderboard,
+} from '../utils/playGames';
 
 interface LeaderboardViewProps {
   globalEntries: LeaderboardEntry[];
   dailyDateKey: string;
   dailyEntries: DailyLeaderboardEntry[];
-  currentGamerId: string;
+  progress: PlayerProgress;
   loading: boolean;
   onRefresh: () => void;
 }
@@ -15,13 +26,36 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
   globalEntries,
   dailyDateKey,
   dailyEntries,
-  currentGamerId,
+  progress,
   loading,
   onRefresh,
 }) => {
   const [boardTab, setBoardTab] = useState<'global' | 'daily'>('global');
+  const [pgMsg, setPgMsg] = useState<string | null>(null);
+  const [pgStatus, setPgStatus] = useState('Play Games: checking...');
 
-  const playerGlobalIdx = globalEntries.findIndex((e) => e.id === currentGamerId);
+  useEffect(() => {
+    void playGamesStatus().then(setPgStatus);
+  }, [pgMsg]);
+
+  const playerGlobalIdx = globalEntries.findIndex(
+    (e) => e.id === progress.gamerId
+  );
+  const clearedLevelsCount = Object.keys(progress.levelStars).length;
+
+  const handleOpenPlayGamesLeaderboard = async () => {
+    const ok = await showLeaderboard();
+    setPgMsg(
+      ok ? null : `Could not open Google Play Games. ${getLastIssue()}`.trim()
+    );
+  };
+
+  const handleOpenPlayGamesAchievements = async () => {
+    const ok = await showAchievements();
+    setPgMsg(
+      ok ? null : `Could not open Google Play Games. ${getLastIssue()}`.trim()
+    );
+  };
 
   return (
     <section className="space-y-5">
@@ -29,7 +63,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
         <div>
           <h2 className="text-2xl font-display font-bold text-white flex items-center gap-2">
             <Globe className="w-6 h-6 text-amber-400" />
-            <span>Global Leaderboards</span>
+            <span>Global Leaderboards & Stats</span>
           </h2>
           <p className="text-sm text-slate-400">
             Play Games verified standings across worldwide players.
@@ -73,6 +107,70 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
         </div>
       </div>
 
+      {/* Player Stats & Google Play Games Card (color-sort-puzzle pattern) */}
+      <div className="rounded-2xl bg-slate-900/85 border border-slate-800 p-4 space-y-3.5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3">
+            <p className="text-[11px] text-slate-400">Levels Cleared</p>
+            <p className="text-lg font-display font-bold text-white tabular-nums">
+              {clearedLevelsCount}
+            </p>
+          </div>
+          <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3">
+            <p className="text-[11px] text-slate-400">Total Stars</p>
+            <p className="text-lg font-display font-bold text-amber-300 flex items-center gap-1 tabular-nums">
+              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+              <span>{progress.currencies.stars}</span>
+            </p>
+          </div>
+          <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3">
+            <p className="text-[11px] text-slate-400">Total Score</p>
+            <p className="text-lg font-display font-bold text-emerald-300 tabular-nums">
+              {progress.totalScore.toLocaleString()}
+            </p>
+          </div>
+          <div className="rounded-xl bg-slate-950/80 border border-slate-800 p-3">
+            <p className="text-[11px] text-slate-400">Daily & Trophies</p>
+            <p className="text-lg font-display font-bold text-cyan-300 flex items-center gap-1.5 tabular-nums">
+              <Flame className="w-4 h-4 text-orange-400" />
+              <span>{progress.dailyStreak}d</span>
+              <span className="text-xs text-slate-500">·</span>
+              <span className="text-sm text-slate-200">
+                {progress.unlockedAchievements.length}/{ACHIEVEMENTS.length}
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={handleOpenPlayGamesLeaderboard}
+            className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:brightness-105 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
+          >
+            <Globe className="w-4 h-4" />
+            <span>Global Leaderboard (Play Games)</span>
+          </button>
+          <button
+            type="button"
+            onClick={handleOpenPlayGamesAchievements}
+            className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all active:scale-98 cursor-pointer"
+          >
+            <Award className="w-4 h-4 text-amber-400" />
+            <span>Play Games Achievements</span>
+          </button>
+        </div>
+
+        {pgMsg && (
+          <p className="text-center text-xs text-amber-300 break-words">
+            {pgMsg}
+          </p>
+        )}
+        <p className="text-center text-[11px] text-slate-400 break-words">
+          {pgStatus}
+        </p>
+      </div>
+
       {/* Player Standing Summary */}
       {boardTab === 'global' && playerGlobalIdx >= 0 && (
         <div className="rounded-2xl bg-amber-500/10 border border-amber-400/30 p-4 flex items-center justify-between gap-4">
@@ -82,7 +180,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
             </span>
             <div>
               <p className="text-sm font-semibold text-white">
-                Your Global Rank
+                Your Global Standing
               </p>
               <p className="text-xs text-amber-200/80 tabular-nums">
                 {globalEntries[playerGlobalIdx].bestScore.toLocaleString()} pts ·{' '}
@@ -110,7 +208,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-800/70 text-sm">
                 {globalEntries.map((entry, idx) => {
-                  const isYou = entry.id === currentGamerId;
+                  const isYou = entry.id === progress.gamerId;
                   return (
                     <tr
                       key={entry.id}
@@ -214,7 +312,7 @@ export const LeaderboardView: React.FC<LeaderboardViewProps> = ({
                   </tr>
                 ) : (
                   dailyEntries.map((entry, idx) => {
-                    const isYou = entry.id === currentGamerId;
+                    const isYou = entry.id === progress.gamerId;
                     return (
                       <tr
                         key={entry.id}

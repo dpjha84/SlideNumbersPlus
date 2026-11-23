@@ -4,8 +4,4 @@
     <string name="title_activity_main">SlidePulse</string>
     <string name="package_name">com.slidepulse.puzzle</string>
     <string name="custom_url_scheme">com.slidepulse.puzzle</string>
-    <!-- Official Google AdMob test App ID (replace with your production App ID for Play Store) -->
-    <string name="admob_app_id">ca-app-pub-3940256099942544~3347511713</string>
-    <!-- Replace with your Google Play Console Games Project ID -->
-    <string name="play_games_app_id">123456789012</string>
 </resources>

@@ -1,44 +1,64 @@
 import { WebPlugin } from '@capacitor/core';
-import type { PlayGamesPlayer, PlayGamesPlugin } from './definitions';
+import type {
+  PlayerInfo,
+  PlayGamesPlugin,
+  SignInResult,
+} from './definitions';
 
 export class PlayGamesWeb extends WebPlugin implements PlayGamesPlugin {
   private signedIn = true;
-  private playerId = 'gpgs-web-preview';
-  private displayName = 'MetroSlider';
+  private readonly player: PlayerInfo = {
+    playerId: 'gpgs-web-preview',
+    displayName: 'MetroSlider',
+  };
 
-  async signIn(): Promise<PlayGamesPlayer> {
+  async initialize(): Promise<void> {
+    // Web preview fallback — no native SDK initialization needed
+  }
+
+  async signIn(_opts?: { silent?: boolean }): Promise<SignInResult> {
     this.signedIn = true;
     return {
-      playerId: this.playerId,
-      displayName: this.displayName,
-      isSignedIn: this.signedIn,
+      signedIn: true,
+      player: this.player,
     };
   }
 
-  async getPlayerProfile(): Promise<PlayGamesPlayer> {
-    return {
-      playerId: this.playerId,
-      displayName: this.displayName,
-      isSignedIn: this.signedIn,
-    };
+  async isSignedIn(): Promise<{ signedIn: boolean }> {
+    return { signedIn: this.signedIn };
   }
 
-  async submitScore(_options: {
-    leaderboardId: string;
-    score: number;
-  }): Promise<void> {
-    // Handled via local persistent leaderboard in WebView preview
+  async getPlayer(): Promise<PlayerInfo> {
+    if (!this.signedIn) {
+      return { playerId: '', displayName: '' };
+    }
+    return this.player;
   }
 
-  async showLeaderboard(_options: { leaderboardId: string }): Promise<void> {
-    // Native Play Games UI opens on Android device
+  async unlockAchievement(_opts: { id: string }): Promise<void> {
+    // Handled via local Play Games achievement tracker in web preview
   }
 
-  async unlockAchievement(_options: { achievementId: string }): Promise<void> {
-    // Handled via Play Games achievement tracker in WebView preview
+  async incrementAchievement(_opts: { id: string; steps: number }): Promise<void> {
+    // Web preview no-op
   }
 
   async showAchievements(): Promise<void> {
+    // Native Play Games UI opens on Android device
+  }
+
+  async submitScore(_opts: {
+    leaderboardId: string;
+    score: number;
+  }): Promise<void> {
+    // Handled via persistent local leaderboard in web preview
+  }
+
+  async showLeaderboard(_opts: { leaderboardId: string }): Promise<void> {
+    // Native Play Games UI opens on Android device
+  }
+
+  async showAllLeaderboards(): Promise<void> {
     // Native Play Games UI opens on Android device
   }
 }

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ExternalLink, ShieldCheck, Sparkles, X } from 'lucide-react';
-import { BANNER_CREATIVES } from '../services/admob';
+import { BANNER_CREATIVES } from '../utils/admob';
 
 interface AdMobBannerProps {
   levelContext: number;

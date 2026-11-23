@@ -50,23 +50,24 @@ import {
   slideTileAt,
 } from './engine/puzzle';
 import {
+  adMobManager,
   canShowInterstitial,
-  initializeNativeAdMob,
   recordInterstitialShown,
-  showNativeInterstitialIfReady,
-} from './services/admob';
-import { playGameSound, triggerHaptic } from './services/feedback';
+} from './utils/admob';
+import { playGameSound, triggerHaptic } from './utils/feedback';
 import {
   evaluateAchievements,
   fetchLeaderboards,
   getPlayerLevelFromXp,
+  initPlayGames,
   loadLocalProgress,
   saveLocalProgress,
-  signInPlayGames,
   submitDailyScore,
   submitGlobalScore,
   syncProfileToCloud,
-} from './services/playGames';
+  syncProgress,
+  unlockAchievement,
+} from './utils/playGames';
 import {
   DailyLeaderboardEntry,
   LeaderboardEntry,
@@ -91,6 +92,8 @@ export default function App() {
   const [progress, setProgress] = useState<PlayerProgress>(() =>
     loadLocalProgress()
   );
+  const progressRef = useRef(progress);
+  progressRef.current = progress;
   const [activeTab, setActiveTab] = useState<NavTab>('play');
   const [activeLevel, setActiveLevel] = useState<number>(() =>
     loadLocalProgress().highestLevelUnlocked
@@ -180,8 +183,13 @@ export default function App() {
 
   useEffect(() => {
     refreshLeaderboards();
-    void initializeNativeAdMob();
-    void signInPlayGames();
+    void adMobManager.init();
+    void initPlayGames();
+    // Push any offline-earned achievements and score to Play Games on launch
+    void syncProgress(
+      progressRef.current.unlockedAchievements,
+      progressRef.current.totalScore
+    );
   }, [refreshLeaderboards]);
 
   // Timer tick while playing
@@ -286,59 +294,63 @@ export default function App() {
         0
       );
 
-      let nextProgress!: PlayerProgress;
-      setProgress((prev) => {
-        const nextLevelStars = { ...prev.levelStars };
-        const nextBestMoves = { ...prev.levelBestMoves };
+      const prevSnapshot = progressRef.current;
+      const nextLevelStars = { ...prevSnapshot.levelStars };
+      const nextBestMoves = { ...prevSnapshot.levelBestMoves };
 
-        if (!isDailyMode) {
-          nextLevelStars[def.level] = Math.max(
-            prev.levelStars[def.level] || 0,
-            starsEarned
-          );
-          const prevBest = prev.levelBestMoves[def.level];
-          nextBestMoves[def.level] =
-            prevBest !== undefined ? Math.min(prevBest, finalMoves) : finalMoves;
-        }
+      if (!isDailyMode) {
+        nextLevelStars[def.level] = Math.max(
+          prevSnapshot.levelStars[def.level] || 0,
+          starsEarned
+        );
+        const prevBest = prevSnapshot.levelBestMoves[def.level];
+        nextBestMoves[def.level] =
+          prevBest !== undefined ? Math.min(prevBest, finalMoves) : finalMoves;
+      }
 
-        const completedDailies = new Set(prev.completedDailyDates);
-        const isNewDailyToday =
-          isDailyMode && !completedDailies.has(dailyDateKey);
-        if (isDailyMode) completedDailies.add(dailyDateKey);
+      const completedDailies = new Set(prevSnapshot.completedDailyDates);
+      const isNewDailyToday =
+        isDailyMode && !completedDailies.has(dailyDateKey);
+      if (isDailyMode) completedDailies.add(dailyDateKey);
 
-        nextProgress = {
-          ...prev,
-          xp: prev.xp + 75 + starsEarned * 30 + achievementXp,
-          highestLevelUnlocked: isDailyMode
-            ? prev.highestLevelUnlocked
-            : Math.max(prev.highestLevelUnlocked, def.level + 1),
-          levelStars: nextLevelStars,
-          levelBestMoves: nextBestMoves,
-          totalScore: prev.totalScore + scoreEarned,
-          currencies: {
-            stars: prev.currencies.stars + bonusStarsEarned,
-            coins: prev.currencies.coins + coinsEarned,
-            diamonds:
-              prev.currencies.diamonds + diamondsEarned + achievementDiamonds,
-          },
-          inventory: {
-            ...prev.inventory,
-            doubleCoinsTurns: Math.max(
-              0,
-              prev.inventory.doubleCoinsTurns - 1
-            ),
-          },
-          unlockedAchievements: [
-            ...new Set([
-              ...prev.unlockedAchievements,
-              ...newlyUnlockedAchievements.map((a) => a.id),
-            ]),
-          ],
-          dailyStreak: isNewDailyToday ? prev.dailyStreak + 1 : prev.dailyStreak,
-          completedDailyDates: Array.from(completedDailies),
-        };
-        return nextProgress;
-      });
+      const nextProgress: PlayerProgress = {
+        ...prevSnapshot,
+        xp: prevSnapshot.xp + 75 + starsEarned * 30 + achievementXp,
+        highestLevelUnlocked: isDailyMode
+          ? prevSnapshot.highestLevelUnlocked
+          : Math.max(prevSnapshot.highestLevelUnlocked, def.level + 1),
+        levelStars: nextLevelStars,
+        levelBestMoves: nextBestMoves,
+        totalScore: prevSnapshot.totalScore + scoreEarned,
+        currencies: {
+          stars: prevSnapshot.currencies.stars + bonusStarsEarned,
+          coins: prevSnapshot.currencies.coins + coinsEarned,
+          diamonds:
+            prevSnapshot.currencies.diamonds +
+            diamondsEarned +
+            achievementDiamonds,
+        },
+        inventory: {
+          ...prevSnapshot.inventory,
+          doubleCoinsTurns: Math.max(
+            0,
+            prevSnapshot.inventory.doubleCoinsTurns - 1
+          ),
+        },
+        unlockedAchievements: [
+          ...new Set([
+            ...prevSnapshot.unlockedAchievements,
+            ...newlyUnlockedAchievements.map((a) => a.id),
+          ]),
+        ],
+        dailyStreak: isNewDailyToday
+          ? prevSnapshot.dailyStreak + 1
+          : prevSnapshot.dailyStreak,
+        completedDailyDates: Array.from(completedDailies),
+      };
+
+      progressRef.current = nextProgress;
+      setProgress(nextProgress);
 
       setVictoryResult({
         level: def.level,
@@ -357,7 +369,6 @@ export default function App() {
 
       // Background sync to Play Games & Global Leaderboard
       window.setTimeout(async () => {
-        if (!nextProgress) return;
         const globalRes = await submitGlobalScore(
           nextProgress,
           isDailyMode ? finalMoves : null
@@ -617,9 +628,10 @@ export default function App() {
 
     const nextLvl = activeLevel + 1;
     if (canShowInterstitial(progress.adsRemoved)) {
-      const shownNatively = await showNativeInterstitialIfReady();
-      if (shownNatively) {
-        startBoard(nextLvl, false);
+      if (adMobManager.isNative()) {
+        await adMobManager.showInterstitial(progress.adsRemoved, () => {
+          startBoard(nextLvl, false);
+        });
       } else {
         setPendingNextLevel(nextLvl);
         setInterstitialOpen(true);
@@ -705,16 +717,25 @@ export default function App() {
     }
 
     setProgress((prev) => {
-      const updated = {
+      const nextUnlocked = [...prev.unlockedThemes, themeId];
+      const shouldGrantThemeAch =
+        nextUnlocked.length > 1 &&
+        !prev.unlockedAchievements.includes('theme-collector');
+      if (shouldGrantThemeAch) {
+        void unlockAchievement('theme-collector');
+      }
+      return {
         ...prev,
         currencies: {
           ...prev.currencies,
           diamonds: prev.currencies.diamonds - theme.priceDiamonds,
         },
-        unlockedThemes: [...prev.unlockedThemes, themeId],
+        unlockedThemes: nextUnlocked,
         activeTheme: themeId,
+        unlockedAchievements: shouldGrantThemeAch
+          ? [...prev.unlockedAchievements, 'theme-collector']
+          : prev.unlockedAchievements,
       };
-      return updated;
     });
     triggerHaptic('win', progress.hapticsEnabled);
     playGameSound('unlock', progress.soundEnabled, theme.soundProfile);
@@ -752,18 +773,58 @@ export default function App() {
   };
 
   // Rewarded Ad Handlers
+  const grantDiamonds = useCallback(
+    (amount: number) => {
+      setProgress((prev) => ({
+        ...prev,
+        currencies: {
+          ...prev.currencies,
+          diamonds: prev.currencies.diamonds + amount,
+        },
+      }));
+      playGameSound('coin', progress.soundEnabled, activeTheme.soundProfile);
+      showToast(`+${amount} Diamonds claimed`);
+    },
+    [progress.soundEnabled, activeTheme.soundProfile, showToast]
+  );
+
   const handleRewardedDoubleVictory = (): Promise<void> => {
     return new Promise((resolve) => {
       if (!victoryResult) {
         resolve();
         return;
       }
+      const bonus = victoryResult.diamondsEarned;
+      if (adMobManager.isNative()) {
+        void adMobManager.showRewarded(
+          () => {
+            grantDiamonds(bonus);
+            resolve();
+          },
+          () => {
+            showToast('Rewarded video still loading — try again in a moment');
+            resolve();
+          }
+        );
+        return;
+      }
       rewardedResolveRef.current = resolve;
       setRewardedAdContext({
         type: 'victory',
-        amount: victoryResult.diamondsEarned,
+        amount: bonus,
       });
     });
+  };
+
+  const handleStoreRewardedDiamonds = () => {
+    if (adMobManager.isNative()) {
+      void adMobManager.showRewarded(
+        () => grantDiamonds(15),
+        () => showToast('Rewarded video still loading — try again in a moment')
+      );
+      return;
+    }
+    setRewardedAdContext({ type: 'store' });
   };
 
   const handleClaimRewardedAd = () => {
@@ -771,15 +832,7 @@ export default function App() {
     const amount =
       rewardedAdContext.type === 'store' ? 15 : rewardedAdContext.amount;
 
-    setProgress((prev) => ({
-      ...prev,
-      currencies: {
-        ...prev.currencies,
-        diamonds: prev.currencies.diamonds + amount,
-      },
-    }));
-    playGameSound('coin', progress.soundEnabled, activeTheme.soundProfile);
-    showToast(`+${amount} Diamonds claimed`);
+    grantDiamonds(amount);
     setRewardedAdContext(null);
     if (rewardedResolveRef.current) {
       rewardedResolveRef.current();
@@ -1334,9 +1387,7 @@ export default function App() {
             onBuyPowerUp={handleBuyPowerUp}
             onUnlockOrEquipTheme={handleUnlockOrEquipTheme}
             onUnlockOrEquipSkin={handleUnlockOrEquipSkin}
-            onWatchRewardedDiamonds={() =>
-              setRewardedAdContext({ type: 'store' })
-            }
+            onWatchRewardedDiamonds={handleStoreRewardedDiamonds}
           />
         )}
 
@@ -1345,20 +1396,22 @@ export default function App() {
             globalEntries={globalEntries}
             dailyDateKey={dailyDateKey}
             dailyEntries={dailyEntries}
-            currentGamerId={progress.gamerId}
+            progress={progress}
             loading={loadingBoards}
             onRefresh={refreshLeaderboards}
           />
         )}
       </main>
 
-      {/* Always-Visible AdMob Banner on Every Level & View */}
-      <div className="fixed bottom-0 inset-x-0 z-30">
-        <AdMobBanner
-          levelContext={activeLevel}
-          onOpenStoreRemoveAds={() => setPlayGamesModalOpen(true)}
-        />
-      </div>
+      {/* Always-Visible AdMob Banner on Every Level & View (native SDK banner on Android, web creative bar in preview) */}
+      {!adMobManager.isNative() && (
+        <div className="fixed bottom-0 inset-x-0 z-30">
+          <AdMobBanner
+            levelContext={activeLevel}
+            onOpenStoreRemoveAds={() => setPlayGamesModalOpen(true)}
+          />
+        </div>
+      )}
 
       {/* Transient Non-Blocking Toast */}
       {toastMsg && (
@@ -1411,9 +1464,16 @@ export default function App() {
         progress={progress}
         syncing={syncingProfile}
         onClose={() => setPlayGamesModalOpen(false)}
-        onUpdateProfile={(patch) =>
-          setProgress((prev) => ({ ...prev, ...patch }))
-        }
+        onUpdateProfile={(patch) => {
+          const updated = { ...progressRef.current, ...patch };
+          progressRef.current = updated;
+          setProgress(updated);
+          if (updated.totalScore > 0) {
+            void submitGlobalScore(updated).then((res) => {
+              if (res) setGlobalEntries(res.global);
+            });
+          }
+        }}
         onManualSync={handleManualSync}
       />
     </div>

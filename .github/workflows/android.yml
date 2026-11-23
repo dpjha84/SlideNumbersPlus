@@ -1,0 +1,110 @@
+name: Android build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      KS_B64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install dependencies & typecheck
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm run lint
+
+      # Pass 1: Build with Google official TEST ad units for APK testing
+      - name: Build web app (test ads)
+        run: npm run build
+        env:
+          VITE_NATIVE: 'true'
+
+      - name: Sync Capacitor Android
+        run: npx cap sync android
+
+      # Sign with the upload key when configured, so debug & release APKs share a fixed SHA-1 fingerprint (required for Play Games)
+      - name: Prepare signing key
+        if: ${{ env.KS_B64 != '' }}
+        env:
+          KS_PASS: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$RUNNER_TEMP/upload.jks" "$KS_PASS" "$KEY_ALIAS" "$KEY_PASS" > keystore.properties
+        working-directory: android
+
+      - name: Build debug APK
+        run: chmod +x gradlew && ./gradlew assembleDebug -PciVersionCode=${{ github.run_number }} --no-daemon
+        working-directory: android
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: slidepulse-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Build release test APK (test ads)
+        if: ${{ env.KS_B64 != '' }}
+        run: ./gradlew assembleRelease -PciVersionCode=${{ github.run_number }} --no-daemon
+        working-directory: android
+
+      - name: Upload release test APK
+        if: ${{ env.KS_B64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: slidepulse-release-test-apk
+          path: android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      # Pass 2: Rebuild web app with production AdMob unit IDs (if configured) and build Release AAB for Play Store
+      - name: Rebuild web app (release AAB)
+        run: npm run build && npx cap sync android
+        env:
+          VITE_NATIVE: 'true'
+          VITE_ADMOB_BANNER_UNIT_ID: ${{ secrets.VITE_ADMOB_BANNER_UNIT_ID }}
+          VITE_ADMOB_INTERSTITIAL_UNIT_ID: ${{ secrets.VITE_ADMOB_INTERSTITIAL_UNIT_ID }}
+          VITE_ADMOB_REWARDED_UNIT_ID: ${{ secrets.VITE_ADMOB_REWARDED_UNIT_ID }}
+
+      - name: Build release AAB
+        run: chmod +x gradlew && ./gradlew bundleRelease -PciVersionCode=${{ github.run_number }} --no-daemon
+        working-directory: android
+
+      - name: Upload release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: slidepulse-release-aab
+          path: android/app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+
+      - name: Attach APK & AAB to GitHub Release (on v* tags)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/bundle/release/*.aab

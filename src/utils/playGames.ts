@@ -1,3 +1,6 @@
+// Google Play Games Services (Android only) + Persistent Global/Daily Leaderboard engine.
+// Silent sign-in runs at startup; interactive UI calls prompt sign-in only on explicit tap.
+
 import { Capacitor } from '@capacitor/core';
 import { PlayGames } from 'capacitor-play-games';
 import { ACHIEVEMENTS } from '../data/themes';
@@ -12,11 +15,183 @@ const STORAGE_KEY = 'slidepulse_player_progress_v1';
 const GLOBAL_BOARD_KEY = 'slidepulse_global_leaderboard_v1';
 const DAILY_BOARD_KEY = 'slidepulse_daily_leaderboard_v1';
 
-// Replace with your Play Console Leaderboard & Achievement IDs before Play Store publishing
-export const PLAY_GAMES_IDS = {
-  globalLeaderboard: 'CgkI_SlidePulse_Global',
-  dailyLeaderboard: 'CgkI_SlidePulse_Daily',
+export const PLAY_LEADERBOARD_ID = 'CgkI_SlidePulse_Global';
+export const PLAY_DAILY_LEADERBOARD_ID = 'CgkI_SlidePulse_Daily';
+
+export const PLAY_ACHIEVEMENT_IDS: Record<string, string> = {
+  'first-slide': 'ach_first-slide',
+  'par-master': 'ach_par-master',
+  'grid-4x4': 'ach_grid-4x4',
+  'grid-5x5': 'ach_grid-5x5',
+  'daily-runner': 'ach_daily-runner',
+  'theme-collector': 'ach_theme-collector',
+  'star-hoarder': 'ach_star-hoarder',
+  'pure-solve': 'ach_pure-solve',
 };
+
+const native = () => Capacitor.isNativePlatform();
+let lastIssue = '';
+const errText = (e: unknown) =>
+  (e instanceof Error ? e.message : typeof e === 'string' ? e : JSON.stringify(e)) ||
+  'unknown error';
+
+let ready: Promise<void> | null = null;
+
+// Called once at startup. Silent sign-in only: never shows a prompt by itself.
+export function initPlayGames(): Promise<void> {
+  if (!native()) return Promise.resolve();
+  if (!ready) {
+    ready = (async () => {
+      try {
+        await PlayGames.initialize();
+        const r = await PlayGames.signIn({ silent: true });
+        if (!r.signedIn) lastIssue = `Not signed in (${r.reason ?? 'unknown'})`;
+      } catch (e) {
+        lastIssue = errText(e);
+      }
+    })();
+  }
+  return ready;
+}
+
+async function signedIn(): Promise<boolean> {
+  if (!native()) return false;
+  try {
+    await initPlayGames();
+    return (await PlayGames.isSignedIn()).signedIn;
+  } catch {
+    return false;
+  }
+}
+
+export async function signInInteractivePlayGames(): Promise<{
+  signedIn: boolean;
+  playerId?: string;
+  displayName?: string;
+}> {
+  if (!native()) {
+    return { signedIn: true };
+  }
+  try {
+    await initPlayGames();
+    const res = await PlayGames.signIn({ silent: false });
+    if (!res.signedIn) {
+      lastIssue = `Sign-in not completed (${res.reason ?? 'unknown'})`;
+      return { signedIn: false };
+    }
+    return {
+      signedIn: true,
+      playerId: res.player?.playerId,
+      displayName: res.player?.displayName,
+    };
+  } catch (e) {
+    lastIssue = errText(e);
+    return { signedIn: false };
+  }
+}
+
+export async function unlockAchievement(localId: string): Promise<void> {
+  const id = PLAY_ACHIEVEMENT_IDS[localId];
+  if (!id || !(await signedIn())) return;
+  try {
+    await PlayGames.unlockAchievement({ id });
+  } catch {
+    // ignore
+  }
+}
+
+export async function submitScore(
+  score: number,
+  leaderboardId = PLAY_LEADERBOARD_ID
+): Promise<void> {
+  if (!(await signedIn())) return;
+  try {
+    await PlayGames.submitScore({ leaderboardId, score });
+  } catch {
+    // ignore
+  }
+}
+
+export async function showLeaderboard(): Promise<boolean> {
+  if (!native()) return false;
+  try {
+    await initPlayGames();
+    if (!(await PlayGames.isSignedIn()).signedIn) {
+      const r = await PlayGames.signIn({ silent: false });
+      if (!r.signedIn) {
+        lastIssue = `Sign-in not completed (${r.reason ?? 'unknown'})`;
+        return false;
+      }
+    }
+    await PlayGames.showLeaderboard({ leaderboardId: PLAY_LEADERBOARD_ID });
+    return true;
+  } catch (e) {
+    lastIssue = errText(e);
+    return false;
+  }
+}
+
+export async function showAchievements(): Promise<boolean> {
+  if (!native()) return false;
+  try {
+    await initPlayGames();
+    if (!(await PlayGames.isSignedIn()).signedIn) {
+      const r = await PlayGames.signIn({ silent: false });
+      if (!r.signedIn) {
+        lastIssue = `Sign-in not completed (${r.reason ?? 'unknown'})`;
+        return false;
+      }
+    }
+    await PlayGames.showAchievements();
+    return true;
+  } catch (e) {
+    lastIssue = errText(e);
+    return false;
+  }
+}
+
+export function getLastIssue(): string {
+  return lastIssue;
+}
+
+export async function playGamesStatus(): Promise<string> {
+  if (!native()) return 'Play Games: only available in the Android app';
+  try {
+    await initPlayGames();
+    const { signedIn: ok } = await PlayGames.isSignedIn();
+    if (!ok) {
+      return `Play Games: not signed in${lastIssue ? ` - ${lastIssue}` : ''}`;
+    }
+    const p = await PlayGames.getPlayer();
+    return `Play Games: signed in as ${p.displayName || p.playerId}`;
+  } catch (e) {
+    return `Play Games: error - ${errText(e)}`;
+  }
+}
+
+export async function syncProgress(
+  unlockedIds: string[],
+  score: number
+): Promise<void> {
+  if (!(await signedIn())) return;
+  for (const id of unlockedIds) await unlockAchievement(id);
+  if (score > 0) await submitScore(score);
+}
+
+// ---------- Local Progress & Competitive Standings ----------
+
+export const COUNTRY_OPTIONS = [
+  { code: 'US', flag: '🇺🇸', name: 'United States' },
+  { code: 'GB', flag: '🇬🇧', name: 'United Kingdom' },
+  { code: 'JP', flag: '🇯🇵', name: 'Japan' },
+  { code: 'DE', flag: '🇩🇪', name: 'Germany' },
+  { code: 'BR', flag: '🇧🇷', name: 'Brazil' },
+  { code: 'KR', flag: '🇰🇷', name: 'South Korea' },
+  { code: 'CA', flag: '🇨🇦', name: 'Canada' },
+  { code: 'FR', flag: '🇫🇷', name: 'France' },
+  { code: 'IN', flag: '🇮🇳', name: 'India' },
+  { code: 'AU', flag: '🇦🇺', name: 'Australia' },
+];
 
 const AVATAR_COLORS = [
   '#f59e0b',
@@ -262,32 +437,6 @@ export function saveLocalProgress(progress: PlayerProgress): void {
   }
 }
 
-export async function signInPlayGames(): Promise<{
-  playerId: string;
-  displayName: string;
-  isSignedIn: boolean;
-} | null> {
-  try {
-    if (Capacitor.isNativePlatform()) {
-      return await PlayGames.signIn();
-    }
-    return await PlayGames.getPlayerProfile();
-  } catch {
-    return null;
-  }
-}
-
-export async function openNativePlayGamesLeaderboard(): Promise<void> {
-  if (!Capacitor.isNativePlatform()) return;
-  try {
-    await PlayGames.showLeaderboard({
-      leaderboardId: PLAY_GAMES_IDS.globalLeaderboard,
-    });
-  } catch {
-    // Fallback handled by in-app LeaderboardView
-  }
-}
-
 export function evaluateAchievements(
   progress: PlayerProgress,
   context: {
@@ -307,9 +456,7 @@ export function evaluateAchievements(
     if (def) {
       unlocked.add(id);
       newlyUnlocked.push(def);
-      if (Capacitor.isNativePlatform()) {
-        void PlayGames.unlockAchievement({ achievementId: `ach_${id}` });
-      }
+      void unlockAchievement(id);
     }
   };
 
@@ -344,16 +491,7 @@ export async function syncProfileToCloud(
 ): Promise<string | null> {
   saveLocalProgress(progress);
   if (!progress.playGamesSignedIn) return null;
-  if (Capacitor.isNativePlatform()) {
-    try {
-      await PlayGames.submitScore({
-        leaderboardId: PLAY_GAMES_IDS.globalLeaderboard,
-        score: progress.totalScore,
-      });
-    } catch {
-      // Continue
-    }
-  }
+  await syncProgress(progress.unlockedAchievements, progress.totalScore);
   return new Date().toISOString();
 }
 
@@ -465,15 +603,8 @@ export async function submitGlobalScore(
     window.localStorage.setItem(GLOBAL_BOARD_KEY, JSON.stringify(sorted));
   }
 
-  if (Capacitor.isNativePlatform() && progress.playGamesSignedIn) {
-    try {
-      await PlayGames.submitScore({
-        leaderboardId: PLAY_GAMES_IDS.globalLeaderboard,
-        score: progress.totalScore,
-      });
-    } catch {
-      // Ignore native bridge error in offline tests
-    }
+  if (progress.playGamesSignedIn) {
+    await submitScore(progress.totalScore, PLAY_LEADERBOARD_ID);
   }
 
   const rank = sorted.findIndex((e) => e.id === progress.gamerId) + 1;
@@ -520,6 +651,10 @@ export async function submitDailyScore(
   const payload = { dateKey: current.daily.dateKey, entries: sorted };
   if (typeof window !== 'undefined') {
     window.localStorage.setItem(DAILY_BOARD_KEY, JSON.stringify(payload));
+  }
+
+  if (progress.playGamesSignedIn) {
+    await submitScore(moves, PLAY_DAILY_LEADERBOARD_ID);
   }
 
   const rank = sorted.findIndex((e) => e.id === progress.gamerId) + 1;

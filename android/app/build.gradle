@@ -1,23 +1,54 @@
 apply plugin: 'com.android.application'
 
+def keystoreProps = new Properties()
+def keystoreFile = rootProject.file('keystore.properties')
+if (keystoreFile.exists()) {
+    keystoreProps.load(new FileInputStream(keystoreFile))
+}
+
+def ciVersionCode = project.hasProperty('ciVersionCode') ? project.property('ciVersionCode').toInteger() : 1
+def admobAppIdValue = project.hasProperty('admobAppId') ? project.property('admobAppId') : (System.getenv('ADMOB_APP_ID') ?: "ca-app-pub-3940256099942544~3347511713")
+
 android {
-    namespace "com.slidepulse.puzzle"
-    compileSdk rootProject.ext.compileSdkVersion
+    namespace = "com.slidepulse.puzzle"
+    compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
         applicationId "com.slidepulse.puzzle"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        manifestPlaceholders = [admobAppId: admobAppIdValue]
+        versionCode ciVersionCode
+        versionName "1.0.${ciVersionCode}"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
-             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
-             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
-            ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    signingConfigs {
+        release {
+            if (keystoreFile.exists()) {
+                storeFile file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
         }
     }
     buildTypes {
+        debug {
+            // Same upload key as release when available, so Play Games sees a fixed fingerprint
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
+        }
         release {
+            if (keystoreFile.exists()) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
@@ -25,7 +56,7 @@ android {
 }
 
 repositories {
-    flatDir{
+    flatDir {
         dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
     }
 }
