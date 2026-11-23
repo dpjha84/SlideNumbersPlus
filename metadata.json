@@ -1,0 +1,6 @@
+{
+  "name": "SlidePulse",
+  "description": "Tactile sliding number puzzle game with escalating grids, daily challenges, unlockable themes, Play Games integration, and global leaderboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

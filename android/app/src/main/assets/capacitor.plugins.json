@@ -1,0 +1,14 @@
+[
+	{
+		"pkg": "@capacitor-community/admob",
+		"classpath": "com.getcapacitor.community.admob.AdMob"
+	},
+	{
+		"pkg": "@capacitor/haptics",
+		"classpath": "com.capacitorjs.plugins.haptics.HapticsPlugin"
+	},
+	{
+		"pkg": "capacitor-play-games",
+		"classpath": "com.slidepulse.playgames.PlayGamesPlugin"
+	}
+]
