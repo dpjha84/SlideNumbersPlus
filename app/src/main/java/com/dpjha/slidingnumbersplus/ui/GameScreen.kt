@@ -25,7 +25,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -33,6 +32,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dpjha.slidingnumbersplus.game.Levels
+import com.dpjha.slidingnumbersplus.ui.art.CityBackdrop
+import com.dpjha.slidingnumbersplus.ui.art.CityCatalog
 
 @Composable
 fun GameScreen() {
@@ -51,11 +52,8 @@ fun GameScreen() {
         )
     }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF150F3A), Color(0xFF3A2060), Color(0xFF0D0A24)))),
-    ) {
+    Box(Modifier.fillMaxSize()) {
+        CityBackdrop(CityCatalog.forName(spec.city), spec.look)
         Column(
             Modifier
                 .fillMaxSize()
