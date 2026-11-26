@@ -1,7 +1,0 @@
-<?xml version='1.0' encoding='utf-8'?>
-<resources>
-    <string name="app_name">SlidePulse</string>
-    <string name="title_activity_main">SlidePulse</string>
-    <string name="package_name">com.slidepulse.puzzle</string>
-    <string name="custom_url_scheme">com.slidepulse.puzzle</string>
-</resources>

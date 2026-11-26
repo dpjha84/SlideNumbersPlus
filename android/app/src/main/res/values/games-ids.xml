@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Play Games services project (application) ID from Google Play Console -->
-    <string name="game_services_project_id" translatable="false">123456789012</string>
-</resources>
