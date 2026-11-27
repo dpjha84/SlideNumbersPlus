@@ -256,7 +256,7 @@ private fun DailyCard(vm: AppViewModel, modifier: Modifier) {
             Column(Modifier.weight(1f)) {
                 Title("Daily puzzle", 19)
                 val time = String.format(Locale.US, "%02d:%02d:%02d", left / 3600, left / 60 % 60, left % 60)
-                Small(if (done) "Done. Next in $time" else "Resets in $time (UTC)")
+                Small(if (done) "Next in $time" else "Resets in $time", ticking = true)
             }
             Pill(if (done) "Replay" else "Play") { vm.playDaily() }
         }

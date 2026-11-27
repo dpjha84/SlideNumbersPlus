@@ -76,8 +76,13 @@ fun Title(text: String, size: Int = 24, modifier: Modifier = Modifier, color: Co
 }
 
 @Composable
-fun Small(text: String, modifier: Modifier = Modifier, size: Int = 12, color: Color = Cream.copy(alpha = 0.85f), align: TextAlign? = null) {
-    Text(text, modifier, color = color, fontSize = size.sp, textAlign = align, style = TextStyle(fontWeight = FontWeight.Bold, shadow = titleShadow))
+fun Small(text: String, modifier: Modifier = Modifier, size: Int = 12, color: Color = Cream.copy(alpha = 0.85f), align: TextAlign? = null, ticking: Boolean = false) {
+    // Ticking text (a countdown) stays on one line, with equal-width digits so it doesn't jitter.
+    Text(
+        text, modifier, color = color, fontSize = size.sp, textAlign = align,
+        maxLines = if (ticking) 1 else Int.MAX_VALUE, softWrap = !ticking,
+        style = TextStyle(fontWeight = FontWeight.Bold, shadow = titleShadow, fontFeatureSettings = if (ticking) "tnum" else null),
+    )
 }
 
 /** A tap target that sinks a little while pressed. */
