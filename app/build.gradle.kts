@@ -43,6 +43,8 @@ android {
 
     buildTypes {
         debug {
+            // installs next to the Play Store version, so testing never touches a real save
+            applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
             // Google's public test units
             manifestPlaceholders["adsAppId"] = testAdsAppId

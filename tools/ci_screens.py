@@ -6,7 +6,8 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 
-PACKAGE = "com.dpjha.slidingnumbersplus"
+PACKAGE = "com.dpjha.slidingnumbersplus.debug"
+ACTIVITY = f"{PACKAGE}/com.dpjha.slidingnumbersplus.MainActivity"
 # push a change to this file to run the check on the branch
 OUT = "screens"
 
@@ -102,7 +103,7 @@ def tap(point):
 
 
 def launch():
-    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+    adb("shell", "am", "start", "-W", "-n", ACTIVITY)
 
 
 def seed_save(**values):
@@ -113,6 +114,45 @@ def seed_save(**values):
     adb("shell", "am", "force-stop", PACKAGE)
     adb("push", "seed.xml", "/data/local/tmp/seed.xml")
     adb("shell", f"run-as {PACKAGE} cp /data/local/tmp/seed.xml shared_prefs/snp3.xml")
+
+
+def check_upgrade(name, path, content, level):
+    """Plants a save the way an older release wrote it, and checks the player keeps their level."""
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("shell", "pm", "clear", PACKAGE)
+    with open("legacy.bin", "wb") as f:
+        f.write(content)
+    adb("push", "legacy.bin", "/data/local/tmp/legacy.bin")
+    folder = path.rsplit("/", 1)[0]
+    adb("shell", f"run-as {PACKAGE} mkdir -p {folder}")
+    adb("shell", f"run-as {PACKAGE} cp /data/local/tmp/legacy.bin {path}")
+    launch()
+    time.sleep(8)
+    shot(name, 0)
+    saved = adb("shell", f"run-as {PACKAGE} cat shared_prefs/snp3.xml", check=False)
+    if f'<string name="level">{level}</string>' not in saved:
+        raise SystemExit(f"{name}: expected level {level}, saved {saved}")
+    print(name, "kept level", level, flush=True)
+
+
+def proto(field, data):
+    """One length-delimited protobuf field (short values only)."""
+    size, length = len(data), b""
+    while size > 127:
+        length += bytes([size & 127 | 128])
+        size >>= 7
+    return bytes([field << 3 | 2]) + length + bytes([size]) + data
+
+
+def check_upgrades():
+    # 2.x native build: a JSON string in DataStore
+    text = b'{"level":14,"maxLevel":17,"soundOn":true}'
+    store = proto(1, proto(1, b"progress_json") + proto(2, proto(5, text)))
+    check_upgrade("15-upgrade-from-2x", "files/datastore/game_progress.preferences_pb", store, 14)
+    # first release (.NET MAUI): a JSON string in shared preferences
+    xml = (b"<?xml version='1.0' encoding='utf-8'?><map><string name=\"snp_v1\">"
+           b"{&quot;Level&quot;:8,&quot;MaxLevel&quot;:9}</string></map>")
+    check_upgrade("16-upgrade-from-maui", "shared_prefs/old_release.xml", xml, 8)
 
 
 def main():
@@ -177,6 +217,8 @@ def main():
 
     with open(f"{OUT}/logcat.txt", "w") as f:
         f.write(adb("logcat", "-d", "-v", "brief", "AndroidRuntime:E", "*:S"))
+    check_upgrades()
+
     report_hangs()
     print("crash log:")
     print(open(f"{OUT}/logcat.txt").read()[-6000:])
