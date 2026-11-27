@@ -153,11 +153,11 @@ fun GameScreen(vm: AppViewModel, attempt: Attempt, calm: Boolean, onNext: () -> 
                 )
             }
             Row(Modifier.widthIn(max = 380.dp).fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Power(Icons.AutoMirrored.Rounded.Undo, "Undo", player.undos, Teal, Modifier.weight(1f)) { vm.undo() }
-                Power(Icons.Rounded.Lightbulb, if (vm.hintBusy) "Thinking" else "Hint", player.hints, Color(0xFFFFC54D), Modifier.weight(1f)) {
+                Power(Icons.AutoMirrored.Rounded.Undo, if (player.undos > 0) "Undo" else "+5 undos", player.undos, Teal, Modifier.weight(1f)) { vm.undo() }
+                Power(Icons.Rounded.Lightbulb, if (vm.hintBusy) "Thinking" else if (player.hints > 0) "Hint" else "+3 hints", player.hints, Color(0xFFFFC54D), Modifier.weight(1f)) {
                     vm.hint { effects.hint(it) }
                 }
-                Power(Icons.Rounded.Bolt, "Free moves", player.frees, Color(0xFFFF9AD0), Modifier.weight(1f)) { vm.useFreeMoves() }
+                Power(Icons.Rounded.Bolt, if (player.frees > 0) "Free moves" else "+1 pack", player.frees, Color(0xFFFF9AD0), Modifier.weight(1f)) { vm.useFreeMoves() }
             }
         }
         if (result != null && showWin) WinPanel(vm, attempt, result, calm, onNext)
