@@ -127,11 +127,19 @@ def check_upgrade(name, path, content, level):
     folder = path.rsplit("/", 1)[0]
     adb("shell", f"run-as {PACKAGE} mkdir -p {folder}")
     adb("shell", f"run-as {PACKAGE} cp /data/local/tmp/legacy.bin {path}")
+    adb("logcat", "-c")
+    started = time.time()
     launch()
-    time.sleep(30)
-    shot(name, 0)
-    saved = adb("shell", f"run-as {PACKAGE} cat shared_prefs/snp3.xml", check=False)
+    # a cold start after clearing data is slow here: wait for the save, and say how long it took
+    saved = ""
+    while time.time() - started < 240 and "<map" not in saved:
+        time.sleep(5)
+        saved = adb("shell", f"run-as {PACKAGE} cat shared_prefs/snp3.xml", check=False)
+    print(name, "save written after", int(time.time() - started), "s", flush=True)
+    shot(name, 10)
     if f'<string name="level">{level}</string>' not in saved:
+        report_hangs()
+        print(adb("logcat", "-d", "-v", "brief", "AndroidRuntime:E", "System.err:W", "*:S", check=False)[-3000:])
         raise SystemExit(f"{name}: expected level {level}, saved {saved}")
     print(name, "kept level", level, flush=True)
 
