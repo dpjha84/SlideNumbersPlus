@@ -1,4 +1,4 @@
-# Sliding Numbers+
+# Sliding Numbers: City Puzzle
 
 Native Android (Kotlin, Jetpack Compose) city-themed sliding puzzle by Pixel Pocket.
 Package `com.dpjha.slidingnumbersplus`, versionCode 300.

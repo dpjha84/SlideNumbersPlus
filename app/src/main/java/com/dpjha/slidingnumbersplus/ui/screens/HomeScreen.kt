@@ -186,8 +186,7 @@ private fun Logo(modifier: Modifier) {
                 canvas.nativeCanvas.drawText(text, left + x * u, y * u, paint)
             }
             word("Sliding", 175f, 60f, 66f, Cream)
-            word("Numbers", 165f, 126f, 66f, Color(0xFFFFF0A8), Color(0xFFFF9D1E))
-            word("+", 316f, 108f, 62f, Teal)
+            word("Numbers", 175f, 126f, 66f, Color(0xFFFFF0A8), Color(0xFFFF9D1E))
         }
     }
 }

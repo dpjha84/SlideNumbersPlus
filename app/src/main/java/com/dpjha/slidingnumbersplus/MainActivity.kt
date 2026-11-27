@@ -176,7 +176,7 @@ class MainActivity : ComponentActivity() {
 
     private fun homeActions() = HomeActions(
         share = {
-            val text = "I'm on level ${vm.player.level} of Sliding Numbers+. Come travel with me: ${storeLink()}"
+            val text = "I'm on level ${vm.player.level} of Sliding Numbers: City Puzzle. Come travel with me: ${storeLink()}"
             startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text), "Share"))
         },
         follow = { view(INSTAGRAM) },

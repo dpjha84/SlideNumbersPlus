@@ -1,8 +1,10 @@
-# Sliding Numbers+ 3.0: handoff
+# Sliding Numbers: City Puzzle 3.0: handoff
+
+Name (chosen by DP, replaces "Sliding Numbers+"): Play Store title **Sliding Numbers: City Puzzle** (set in Play Console), launcher label **Sliding Numbers**. Suggested short description: "Slide the tiles, solve number puzzles and tour the world's cities". The package name is unchanged.
 
 ## Who and what
 - Owner: DP, studio **Pixel Pocket** (Instagram @pixelpocket.apps).
-- Native Kotlin/Compose rebuild of **Sliding Numbers+** (`com.dpjha.slidingnumbersplus`), versionCode 300, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
+- Native Kotlin/Compose rebuild of **Sliding Numbers+**, now Sliding Numbers: City Puzzle (`com.dpjha.slidingnumbersplus`), versionCode 300, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
 - Work is on branch `v3-rewrite`. `main` holds an unrelated old React project.
 - There is no Android SDK in the cloud workspace: **CI is the only compiler**. Push, then read the result.
 
