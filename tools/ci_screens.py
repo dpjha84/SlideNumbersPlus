@@ -161,6 +161,8 @@ def main():
     adb("install", "-r", "app/build/outputs/apk/debug/app-debug.apk")
     adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed", check=False)
     # a freshly booted emulator is still busy for a minute or two
+    # the emulator's own launcher often hangs; keep its dialog off the app (hangs are still logged)
+    adb("shell", "settings", "put", "global", "hide_error_dialogs", "1")
     time.sleep(90)
     adb("logcat", "-c")
     launch()
