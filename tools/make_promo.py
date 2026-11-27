@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Vertical (1080x1920, 30 fps) promo reel from phone screenshots (1080x2412) and the game's own audio.
+"""Vertical (1080x1920, 30 fps) promo reel from phone screenshots (1080x2412) and a music track.
 
-Usage: make_promo.py OUT.mp4 game=.. win=.. tour=.. home=.. passport=.. [--end "line"] [--stills DIR]
+Usage: make_promo.py OUT.mp4 --music TRACK.wav game=.. win=.. tour=.. home=.. passport=.. [--end "line"] [--stills DIR]
 `game` must be the London level 2 screen (board 6 2 3 / 4 1 8 / 5 7 _), which the reel solves for real."""
 import sys, os, math, random, subprocess
 from collections import deque
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-RAW = os.path.join(ROOT, "app/src/main/res/raw")
 W, H, FPS = 1080, 1920, 30
 CREAM, GOLD = (255, 244, 222), (255, 190, 60)
 START = (6, 2, 3, 4, 1, 8, 5, 7, 0)
@@ -16,12 +15,13 @@ GOAL = (1, 2, 3, 4, 5, 6, 7, 8, 0)
 
 args = sys.argv[1:]
 out = args.pop(0)
-end_line, stills = "Coming soon on Google Play", None
+end_line, stills, music = "Coming soon on Google Play", None, None
 paths = {}
 while args:
     a = args.pop(0)
     if a == "--end": end_line = args.pop(0)
     elif a == "--stills": stills = args.pop(0)
+    elif a == "--music": music = args.pop(0)
     else:
         k, v = a.split("=", 1)
         paths[k] = Image.open(v).convert("RGB")
@@ -159,10 +159,10 @@ crop = lambda k, bottom=2225: paths[k].crop((0, 112, 1080, bottom))
 WIN, HOME, PASS = card(crop("win")), card(crop("home", 2068)), card(crop("passport", 2012))
 TOUR = paths["tour"]
 
-STEP = 0.30                 # seconds per move
-INTRO = 0.9
-SOLVE = INTRO + STEP * (len(STATES) - 1) + 0.5
-SCENES = [("game", SOLVE), ("win", 2.4), ("tour", 2.8), ("home", 2.2), ("passport", 2.2), ("end", 3.4)]
+STEP = 0.25                 # seconds per move: an eighth note at 120 BPM
+INTRO = 0.25
+# lengths follow the music's beat (0.5 s)
+SCENES = [("game", 5.5), ("win", 2.5), ("tour", 3.0), ("home", 2.5), ("passport", 2.5), ("end", 4.0)]
 TOTAL = sum(d for _, d in SCENES)
 ICON = Image.open(os.path.join(ROOT, "docs/store/icon-512.png")).convert("RGBA").resize((460, 460))
 mask = Image.new("L", ICON.size, 0)
@@ -237,19 +237,11 @@ if stills:
     print("seconds", round(TOTAL, 1), "moves", len(STATES) - 1)
     sys.exit()
 
-# ---- sound: music bed, a click per move, a fanfare on the solve ----
-inputs = ["-i", os.path.join(RAW, "music_paris.ogg")]
-filters = [f"[1:a]atrim=0:{TOTAL},volume=0.9,afade=t=in:d=0.4,afade=t=out:st={TOTAL - 1.5}:d=1.5[m]"]
-cues = [("sfx_slide.wav", INTRO + i * STEP, 0.8) for i in range(len(STATES) - 1)]
-cues += [("sfx_win.wav", INTRO + (len(STATES) - 1) * STEP, 0.7)]
-for n, (f, at, vol) in enumerate(cues, 2):
-    inputs += ["-i", os.path.join(RAW, f)]
-    filters.append(f"[{n}:a]volume={vol},adelay={int(at * 1000)}:all=1[s{n}]")
-mix = "[m]" + "".join(f"[s{n}]" for n in range(2, 2 + len(cues)))
-filters.append(f"{mix}amix=inputs={len(cues) + 1}:normalize=0,volume=2.2,alimiter=limit=0.9,atrim=0:{TOTAL}[a]")
+# ---- sound ----
+assert music, "pass --music TRACK.wav (made by make_promo_music.py)"
 tmp = out[:-4] + ".part.mp4"
 cmd = ["ffmpeg", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-",
-       *inputs, "-filter_complex", ";".join(filters), "-map", "0:v", "-map", "[a]",
+       "-i", music, "-map", "0:v", "-map", "1:a", "-shortest",
        "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-pix_fmt", "yuv420p",
        "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-movflags", "+faststart", tmp]
 p = subprocess.Popen(cmd, stdin=subprocess.PIPE)
