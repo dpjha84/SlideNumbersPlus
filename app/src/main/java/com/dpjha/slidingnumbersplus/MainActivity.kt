@@ -40,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
@@ -86,7 +87,7 @@ class MainActivity : ComponentActivity() {
             SlidingNumbersTheme {
                 var splash by remember { mutableStateOf(coldStart) }
                 Box(Modifier.fillMaxSize()) {
-                    App(calm)
+                    App(calm, splash)
                     if (splash) SplashScreen(calm) { splash = false }
                 }
             }
@@ -110,7 +111,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun App(calm: Boolean) {
+    private fun App(calm: Boolean, splash: Boolean) {
         val screen = vm.screen
         val spec = vm.sceneSpec
         BackHandler(enabled = screen != Screen.HOME) { vm.goHome() }
@@ -152,7 +153,9 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.15f to Color.Transparent, 0.65f to Color(0xC810082C))))
             }
             Column(Modifier.fillMaxSize().safeDrawingPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            // AdMob policy: nothing may cover the banner, and the banner may cover nothing.
+            // The game area is clipped to its own space, so no effect can spill onto the ad.
+            Box(Modifier.weight(1f).fillMaxWidth().clipToBounds(), contentAlignment = Alignment.TopCenter) {
                 AnimatedContent(
                     targetState = screen,
                     modifier = Modifier.widthIn(max = 440.dp).fillMaxHeight().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -171,11 +174,12 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 Message()
+                if (won && !calm) Celebration(vm.audio)
             }
             // space above keeps taps on the boosters away from the ad
-            if (ads.hasBanner) BannerAd(ads.ready, Modifier.padding(top = 6.dp))
+            // no ad is loaded while the splash screen is drawn over it
+            if (ads.hasBanner) BannerAd(ads.ready && !splash, Modifier.padding(top = 6.dp))
             }
-            if (won && !calm) Celebration(vm.audio)
         }
     }
 

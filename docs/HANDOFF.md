@@ -4,7 +4,7 @@ Name (chosen by DP, replaces "Sliding Numbers+"): Play Store title **Sliding Num
 
 ## Who and what
 - Owner: DP, studio **Pixel Pocket** (Instagram @pixelpocket.apps).
-- Native Kotlin/Compose rebuild of **Sliding Numbers+**, now Sliding Numbers: City Puzzle (`com.dpjha.slidingnumbersplus`), versionCode 304, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
+- Native Kotlin/Compose rebuild of **Sliding Numbers+**, now Sliding Numbers: City Puzzle (`com.dpjha.slidingnumbersplus`), versionCode 305, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
 - Work is on branch `v3-rewrite`. `main` holds an unrelated old React project.
 - There is no Android SDK in the cloud workspace: **CI is the only compiler**. Push, then read the result.
 
