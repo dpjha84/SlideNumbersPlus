@@ -156,7 +156,7 @@ BG = {"game": gradient((52, 128, 206), (22, 28, 72)), "win": gradient((140, 82, 
       "passport": gradient((168, 56, 88), (40, 18, 52)), "end": gradient((118, 70, 168), (24, 18, 56))}
 
 crop = lambda k, bottom=2225: paths[k].crop((0, 112, 1080, bottom))
-WIN, HOME, PASS = card(crop("win")), card(crop("home", 2068)), card(crop("passport"))
+WIN, HOME, PASS = card(crop("win")), card(crop("home", 2068)), card(crop("passport", 2012))
 TOUR = paths["tour"]
 
 STEP = 0.30                 # seconds per move
@@ -184,9 +184,14 @@ def scene(name, t, dur):
         headline(im, "Earn three stars", "Every move counts", t)
         confetti(im, t)
     elif name == "tour":
-        y = int(315 * ease((t - 0.3) / (dur - 0.4)))
-        view = TOUR.crop((0, 405 + y, 1080, 405 + y + 1500))
-        im.alpha_composite(card(view), (150, 440 + rise))
+        # whole city cards only (London, then Paris), sliding in from alternate sides
+        for n, (top, y) in enumerate(((410, 500), (1124, 1160))):
+            k = ease((t - 0.25 * n) / 0.5)
+            city = TOUR.crop((48, top, 1032, top + 671)).resize((900, 614), Image.BILINEAR).convert("RGBA")
+            m = Image.new("L", city.size, 0)
+            ImageDraw.Draw(m).rounded_rectangle((0, 0, 899, 613), 58, fill=255)
+            city.putalpha(m)
+            im.alpha_composite(city, (90 + int((1 - k) * (-1000 if n == 0 else 1000)), y))
         headline(im, "Tour the world", "New cities, bigger boards", t)
     elif name == "home":
         im.alpha_composite(HOME, (150, 440 + rise))
