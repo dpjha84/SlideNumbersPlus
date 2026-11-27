@@ -1,50 +1,47 @@
-# Sliding Numbers+ 3.0 — handoff for a fresh session
-
-Read this first. It carries the full context from the earlier session so work can continue in a new one.
+# Sliding Numbers+ 3.0: handoff
 
 ## Who and what
-- Owner: DP (Divyaprakash Jha), indie studio **Pixel Pocket** (Instagram @pixelpocket.apps).
-- Goal: rebuild **Sliding Numbers+** (Play listing "Sliding Numbers+: City Puzzle", package `com.dpjha.slidingnumbersplus`) into a game that is **almost identical to his other game, ColorSort, in every system and in polish, except for the core gameplay**. Top-notch graphics, look and feel, and effects. No bugs, no regressions, nothing that damages trust.
-- Upgrade the existing Play listing (same package, same signing). **versionCode starts at 300**, versionName 3.0.0.
-- Repo: `dpjha84/SlideNumbersPlus` (this repo). Work is on branch `v3-rewrite`; `main` still holds an old unrelated React project (SlidePulse) and was deliberately wiped on the branch at DP's instruction. Old native app for reference: `dpjha84/SlidingNumbersPlusV2` (read-only clone, has Play Games and AdMob service code, 3 city images, a 2^size move limit, hints).
-- The Claude GitHub app is installed for this repo, so pushes work. CI (GitHub Actions) compiles and runs tests on every push to any branch; there is **no Android SDK here**, so CI is the only compiler. Always push and read the CI result before claiming something works.
+- Owner: DP, studio **Pixel Pocket** (Instagram @pixelpocket.apps).
+- Native Kotlin/Compose rebuild of **Sliding Numbers+** (`com.dpjha.slidingnumbersplus`), versionCode 300, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
+- Work is on branch `v3-rewrite`. `main` holds an unrelated old React project.
+- There is no Android SDK in the cloud workspace: **CI is the only compiler**. Push, then read the result.
 
-## Status: DP tested the current build on a phone and is NOT happy
-He said it is "not anywhere close to my expectation". He did not list specifics. Treat the current UI as a rough prototype and aim much higher. Ask him what felt wrong (look, feel, speed, missing screens), then raise the bar across the board. What exists now:
-- `game/PuzzleEngine.kt`: rectangular boards, chain slides, always-solvable scramble, unit tested.
-- `game/Levels.kt`: city every 5 levels, size ladder, tours, par, stars, unit tested.
-- `ui/BoardState.kt` + `ui/BoardView.kt`: drag-follow tiles, swipe commits at 20% of a cell, very stiff critically damped spring, glass translucent colourful tiles, glow when in place, haptics.
-- `ui/art/*`: Canvas city backdrops (3 skyline layers with haze and parallax sway, water reflection, stars, clouds, birds, boats, blinking windows, Paris searchlight), 21 landmarks, day/sunset/night palettes. The 14 non-previewed landmarks are simple first drafts.
-- `ui/GameScreen.kt`: bare screen. No home screen, no saving, no economy. versionCode 300.
-- None of the ColorSort systems below exist yet.
+## Locked design
+DP approved the web preview and asked for the full build. The reference is `docs/design/locked/preview.html` (`build.py` embeds the instrument samples). Keep these:
+- Living city backdrop: city × sunrise/day/sunset/night × clear/rain/snow/autumn/spring. Each city's five levels walk through different skies (`Levels.moods`).
+- The board carries the same city, season and time: translucent tiles, themed rim, weather inside the board.
+- Sliding must feel instant: 45 ms glide, swipe commits at 20% of a cell.
+- Sound stays soft (he asked twice to lower it). Recorded instruments: tonejs-instruments, CC BY 3.0, so keep the credit line.
+- Boards, rows × cols: 3×3, 4×3, 4×4, 5×4, 5×5, 6×5, 6×6.
 
-## Decisions DP has made (do not re-ask)
-- A **new city every 5 levels**. Board grows along a ladder of rectangular steps: 3×3, 3×4, 4×4, 4×5, 5×5, 5×6, 6×6 (cap). 7 cities = 35 levels = one **World Tour**. Later tours reuse the ladder with new cities and tighter move limits; cities return in **Night and Sunset looks**. About 21 cities in the roster (see `Levels.cities`).
-- **Postcard mode (picture-slice tiles) is dropped entirely.** City theme comes from illustrated skylines with depth and life instead.
-- Tiles must feel like **solid tiles**, not jelly (no squash and stretch). Drag follows the finger. **Movement must be extremely fast** ("don't waste a millisecond"); a swipe commits almost immediately. Tiles are **colourful, slightly translucent**, and tiles in the right place show in a **different, brighter state**. Consider a "Fast moves" setting.
-- Mock values that he approved the feel of (web mock in `docs/design/motion.html`, built by `mk.py`): spring stiffness 10000, damping 200, ripple 0 ms, commit at 20% of a cell, lift scale about 1.03, bump (one short nudge) for blocked tiles, hue by home position from cyan 175° to amber 360°.
-- Moves: replace the old 2^size move limit with a **par** (shuffle depth / Manhattan based); stars by moves vs par.
+## What is built
+| Area | Where |
+|---|---|
+| Engine, levels, par, moods, daily puzzle | `game/PuzzleEngine.kt`, `game/Levels.kt` |
+| Moves, undo, free moves, hints | `game/Session.kt`, `game/Solver.kt` |
+| Save format, economy, streak, chests, achievements, cloud merge | `game/Player.kt`, `game/Rules.kt` |
+| Saving and upgrade from the 2.x and MAUI builds | `data/GameStore.kt` |
+| Scenes, tiles, board, sound | `ui/art/`, `ui/board/`, `audio/` |
+| Home, levels, game and win, rewards, themes, shop, passport, stats | `ui/screens/` |
+| Play Games, ads with consent, review prompt | `services/` |
 
-## Systems to carry over from ColorSort (reference implementation: repo `dpjha84/color-sort-puzzle`, React/Vite/Capacitor)
-Match behaviour and polish, in native Kotlin/Compose:
-- **Home screen** with hero art, resume, daily card, streak, level/tour progress (see `src/components/HomeScreen.tsx`).
-- **Daily Challenge** + **streaks**, with streak freeze, milestone chests at 3/7/14/30 days (planned for ColorSort 1.0.8; build here from the start). Open question for DP: daily reset in local time vs UTC.
-- **Play Games Services v2**: global and daily **leaderboards**, **achievements**, **cloud save via Saved Games** (ColorSort uses snapshot `colorsort_save_v1`; merge by rank, keep local looks). Sign-in is optional; the game must work fully without Play Games (DP asked about this). IDs must be created in Play Console for this app.
-- **Economy**: coins, gems, XP, hints, undo, extra moves, shop, rewarded ads (AdMob), banner ads.
-- **Resume board** (save in-progress board), **review prompt**, **native share**, **themes/skins** (tile styles), **My Stats** screen, rewards modal, victory/failed modals, level-select modal, ambient background, audio (see `src/utils/audio.ts`), confetti/burst effects (`Burst.tsx`).
-- Players on an older build must resume at their old level (ColorSort verified this; here the old app's progress lives in DataStore, so migrate it).
-- Hints: optimal search is practical on 3×3 and 3×4; larger boards use a distance heuristic hint.
+`ui/art/Landmarks.kt` serves cities 8 to 21 and is a **simple first draft**. They also share three music tracks with the first seven. The daily puzzle only uses the first seven cities for that reason.
 
-## Quality bar and process
-- Effects: satisfying solve celebration (tiles wave, skyline lights up), city arrival card on each new city, passport/stamp collection screen, particle bursts, polished transitions, sound and haptics. Think about every screen, not just the board.
-- Also still to design: home-screen hero skyline, tile skins (glass, neon, wood, marble, brick, stone), app icon options, Play feature graphic 1024×500, Play listing text, Instagram reel for launch.
-- Test: unit tests for all game logic; consider Compose UI tests; add a debug level-jump shortcut for reviewing cities.
-- Design assets and web preview tools in `docs/design/` (`sky2.py` generates SVG skylines, `common.js`/`mk.py` the mocks). Plan was to convert final art to Compose Canvas or VectorDrawables.
-- Previews can be built as HTML/Playwright mocks and published as Artifacts so DP can feel them on his phone before porting to Compose. DP likes to see previews before implementation.
-- Keep a plan doc (Claude Docs "Sliding Numbers+ 3.0 plan") updated; it is stale (still lists Postcard mode).
+## Checking changes
+- `Android CI`: unit tests, debug APK, release bundle.
+- `Emulator screenshots` (`tools/ci_screens.py`): plays level 1 to the win card, resumes a saved board, visits later skies, and checks that both older save formats keep the player's level. It runs when that script or its workflow changes. Thumbnails are printed into the log as base64 (`IMG <path> <data>`).
+- Debug builds use the id `com.dpjha.slidingnumbersplus.debug`, so they install beside the Play version.
 
-## Open questions for DP
-1. What specifically fell short on the phone test (look, feel, speed, art, missing screens)?
-2. Daily reset: local time or UTC?
-3. Which Play Games IDs exist already for this listing?
-4. Tile skins, sound style, and whether to include a third "empty" mechanic (ColorSort idea) — not applicable here, ignore.
+## Not verified
+- No real phone yet: smoothness, battery, sound levels, vibration and swipe feel are unjudged. The emulator renders in software, so its frame times mean nothing.
+- Play Games and real ads have no ids, so those paths have never run.
+- Upgrade over the real Play install (same signing key) is untried.
+
+## Needed from DP before release
+1. Signing secrets in GitHub (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`). They are empty, so the CI bundle is **unsigned**. Never commit a keystore.
+2. AdMob ids for this app, as `ADS_APP_ID`, `ADS_REWARDED`, `ADS_INTERSTITIAL` (Gradle properties or environment; the workflow does not pass them yet). Without them a release shows no ads, but the ad SDK is still bundled with Google's test app id in the manifest. Either supply ids or remove the SDK before publishing. There is no banner ad.
+3. Play Games ids in `res/values/play_games_ids.xml`. Empty ids hide the button.
+4. Play Console: data safety and ads declarations must match the ads decision.
+
+## Possible next steps
+Richer art and music for cities 8 to 21, city arrival card, banner ad (ColorSort has one), daily leaderboard, level-jump debug shortcut, store graphics and launch reel.

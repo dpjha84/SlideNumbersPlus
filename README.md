@@ -3,8 +3,8 @@
 Native Android (Kotlin, Jetpack Compose) city-themed sliding puzzle by Pixel Pocket.
 Package `com.dpjha.slidingnumbersplus`, versionCode 300.
 
-- A new city every 5 levels. The board grows along 3×3, 3×4, 4×4, 4×5, 5×5, 5×6, 6×6, then a new tour begins.
-- Very fast glass tiles that glow when they are in the right place.
-- `game/` holds the pure Kotlin engine and level rules (unit tested). `ui/` holds the Compose board.
+- A new city every 5 levels, each level under its own sky and season.
+- Boards grow from 3×3 to 6×6, then a new world tour begins.
+- Daily puzzle, streaks, boosters, tile themes, passport stamps.
 
-CI (`.github/workflows/android.yml`) runs unit tests and builds on every push.
+See [docs/HANDOFF.md](docs/HANDOFF.md) for the layout of the code and what is left before release.
