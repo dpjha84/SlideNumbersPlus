@@ -62,6 +62,17 @@ jobs:
           echo "Building release AAB (signed when Android signing secrets are configured)."
           ./gradlew bundleRelease
 
+      # compare this SHA1 with "Upload key certificate" under App integrity in Play Console
+      - name: Show who signed the release AAB
+        run: |
+          out=$(keytool -printcert -jarfile app/build/outputs/bundle/release/*.aab)
+          echo "$out" | grep -E "SHA1:|SHA256:|Not a signed jar file"
+          if echo "$out" | grep -q "SHA1:"; then
+            echo "::notice title=Release AAB signed::$(echo "$out" | grep -m1 'SHA1:' | xargs)"
+          else
+            echo "::warning title=Release AAB is NOT signed::Add the four Android signing secrets."
+          fi
+
       - name: Publish release AAB
         if: success()
         uses: actions/upload-artifact@v4
