@@ -20,6 +20,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dpjha.slidingnumbersplus.services.Ads
+import com.dpjha.slidingnumbersplus.services.BannerAd
 import com.dpjha.slidingnumbersplus.services.PlayGamesService
 import com.dpjha.slidingnumbersplus.services.askForReview
 import com.dpjha.slidingnumbersplus.ui.AppViewModel
@@ -122,7 +125,8 @@ class MainActivity : ComponentActivity() {
             if (won && vm.winShown) {
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.15f to Color.Transparent, 0.65f to Color(0xC810082C))))
             }
-            Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
+            Column(Modifier.fillMaxSize().safeDrawingPadding(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
                 AnimatedContent(
                     targetState = screen,
                     modifier = Modifier.widthIn(max = 440.dp).fillMaxHeight().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -137,10 +141,13 @@ class MainActivity : ComponentActivity() {
                         Screen.THEMES -> ThemesScreen(vm)
                         Screen.SHOP -> ShopScreen(vm, if (ads.rewardedReady) ({ ads.showRewarded { vm.addCoins(Rules.AD_COINS) } }) else null)
                         Screen.PASSPORT -> PassportScreen(vm)
-                        Screen.STATS -> StatsScreen(vm)
+                        Screen.STATS -> StatsScreen(vm, if (ads.privacyChoicesNeeded) ({ ads.showPrivacyChoices() }) else null)
                     }
                 }
                 Message()
+            }
+            // space above keeps taps on the boosters away from the ad
+            if (ads.hasBanner) BannerAd(ads.ready, Modifier.padding(top = 6.dp))
             }
             if (won && !calm) Celebration(vm.audio)
         }
@@ -155,7 +162,7 @@ class MainActivity : ComponentActivity() {
         }
         Text(
             message,
-            Modifier.align(Alignment.BottomCenter).padding(bottom = 110.dp, start = 24.dp, end = 24.dp)
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 100.dp, start = 24.dp, end = 24.dp)
                 .clip(RoundedCornerShape(14.dp)).background(Cream).padding(horizontal = 14.dp, vertical = 9.dp),
             color = Ink, fontSize = 13.sp, textAlign = TextAlign.Center,
         )

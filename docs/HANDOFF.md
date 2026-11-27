@@ -34,14 +34,14 @@ DP approved the web preview and asked for the full build. The reference is `docs
 
 ## Not verified
 - No real phone yet: smoothness, battery, sound levels, vibration and swipe feel are unjudged. The emulator renders in software, so its frame times mean nothing.
-- Play Games and real ads have no ids, so those paths have never run.
+- Play Games has no ids, so it has never run. Real ads only load in a release build and have not been seen.
 - Upgrade over the real Play install (same signing key) is untried.
 
 ## Needed from DP before release
 1. Signing secrets in GitHub (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`). They are empty, so the CI bundle is **unsigned**. Never commit a keystore.
-2. AdMob ids for this app, as `ADS_APP_ID`, `ADS_REWARDED`, `ADS_INTERSTITIAL` (Gradle properties or environment; the workflow does not pass them yet). Without them a release shows no ads, but the ad SDK is still bundled with Google's test app id in the manifest. Either supply ids or remove the SDK before publishing. There is no banner ad.
+2. AdMob: ids are in `gradle.properties` (release only; debug uses Google test ids). Banner on every screen, interstitial every 4th win after the first city, rewarded in the shop. In the AdMob console, publish a consent message under Privacy & messaging.
 3. Play Games ids in `res/values/play_games_ids.xml`. Empty ids hide the button.
 4. Play Console: data safety and ads declarations must match the ads decision.
 
 ## Possible next steps
-Richer art and music for cities 8 to 21, city arrival card, banner ad (ColorSort has one), daily leaderboard, level-jump debug shortcut, store graphics and launch reel.
+Richer art and music for cities 8 to 21, city arrival card, daily leaderboard, level-jump debug shortcut, store graphics and launch reel.

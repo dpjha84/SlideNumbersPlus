@@ -11,7 +11,7 @@ val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").o
 val hasReleaseSigning = listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
     .all { !it.isNullOrBlank() }
 
-// Real AdMob ids come from -P properties or environment variables; they are not kept in the repo.
+// Real AdMob ids for release builds are in gradle.properties.
 fun adsValue(name: String): String =
     providers.gradleProperty(name).orElse(providers.environmentVariable(name)).orNull.orEmpty()
 
@@ -48,6 +48,7 @@ android {
             versionNameSuffix = "-debug"
             // Google's public test units
             manifestPlaceholders["adsAppId"] = testAdsAppId
+            buildConfigField("String", "ADS_BANNER", "\"ca-app-pub-3940256099942544/6300978111\"")
             buildConfigField("String", "ADS_REWARDED", "\"ca-app-pub-3940256099942544/5224354917\"")
             buildConfigField("String", "ADS_INTERSTITIAL", "\"ca-app-pub-3940256099942544/1033173712\"")
         }
@@ -55,6 +56,7 @@ android {
             // With no ids the ad SDK is never started; the placeholder only keeps the manifest valid.
             val appId = adsValue("ADS_APP_ID")
             manifestPlaceholders["adsAppId"] = appId.ifBlank { testAdsAppId }
+            buildConfigField("String", "ADS_BANNER", "\"${if (appId.isBlank()) "" else adsValue("ADS_BANNER")}\"")
             buildConfigField("String", "ADS_REWARDED", "\"${if (appId.isBlank()) "" else adsValue("ADS_REWARDED")}\"")
             buildConfigField("String", "ADS_INTERSTITIAL", "\"${if (appId.isBlank()) "" else adsValue("ADS_INTERSTITIAL")}\"")
             isMinifyEnabled = true

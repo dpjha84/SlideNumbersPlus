@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 PACKAGE = "com.dpjha.slidingnumbersplus.debug"
 ACTIVITY = f"{PACKAGE}/com.dpjha.slidingnumbersplus.MainActivity"
-# push a change to this file to run the check on the branch
+# push a change to this file to run the check on the branch (last: banner ad)
 OUT = "screens"
 
 

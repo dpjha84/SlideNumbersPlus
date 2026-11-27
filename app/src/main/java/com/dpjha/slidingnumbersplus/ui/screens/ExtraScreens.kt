@@ -234,7 +234,7 @@ fun PassportScreen(vm: AppViewModel) {
 }
 
 @Composable
-fun StatsScreen(vm: AppViewModel) {
+fun StatsScreen(vm: AppViewModel, adPrivacy: (() -> Unit)?) {
     val player = vm.player
     val s = player.stats
     Page(vm, "Stats", "Your journey so far") {
@@ -261,6 +261,12 @@ fun StatsScreen(vm: AppViewModel) {
                 Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Text(label, fontSize = 14.sp)
                     Pill(if (on) "On" else "Off", if (on) Teal else Color.White.copy(alpha = 0.2f), if (on) Color(0xFF05332D) else Cream) { toggle() }
+                }
+            }
+            if (adPrivacy != null) {
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Ad privacy choices", fontSize = 14.sp)
+                    Pill("Review", onClick = adPrivacy)
                 }
             }
         }
