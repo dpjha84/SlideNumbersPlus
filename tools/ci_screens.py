@@ -47,32 +47,106 @@ def back():
     time.sleep(1)
 
 
+def solve(start, rows, cols):
+    """Shortest list of cells to tap (chain slides allowed)."""
+    goal = tuple(range(1, rows * cols)) + (0,)
+    seen = {tuple(start)}
+    queue = [(tuple(start), [])]
+    for state, path in queue:
+        if state == goal:
+            return path
+        gap = state.index(0)
+        for cell in range(rows * cols):
+            same_row = cell // cols == gap // cols
+            if cell == gap or not (same_row or cell % cols == gap % cols):
+                continue
+            step = (1 if cell > gap else -1) * (1 if same_row else cols)
+            board = list(state)
+            for at in range(gap, cell, step):
+                board[at] = board[at + step]
+            board[cell] = 0
+            if tuple(board) not in seen:
+                seen.add(tuple(board))
+                queue.append((tuple(board), path + [cell]))
+    raise ValueError("unsolvable")
+
+
+def board_cells(rows, cols):
+    for node in nodes():
+        if node.get("content-desc", "").startswith("Puzzle board"):
+            x1, y1, x2, y2 = map(int, re.findall(r"\d+", node.get("bounds")))
+            return [(x1 + (x2 - x1) * (2 * (i % cols) + 1) // (2 * cols),
+                     y1 + (y2 - y1) * (2 * (i // cols) + 1) // (2 * rows)) for i in range(rows * cols)]
+    raise ValueError("no board on screen")
+
+
+def tap(point):
+    adb("shell", "input", "tap", str(point[0]), str(point[1]))
+
+
+def launch():
+    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+
+
+def seed_save(**values):
+    """Overwrites the save of the debug build."""
+    entries = "".join(f'<string name="{k}">{v}</string>' for k, v in dict(v="1", **values).items())
+    with open("seed.xml", "w") as f:
+        f.write(f"<?xml version='1.0' encoding='utf-8'?><map>{entries}</map>")
+    adb("shell", "am", "force-stop", PACKAGE)
+    adb("push", "seed.xml", "/data/local/tmp/seed.xml")
+    adb("shell", f"run-as {PACKAGE} cp /data/local/tmp/seed.xml shared_prefs/snp3.xml")
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     adb("install", "-r", "app/build/outputs/apk/debug/app-debug.apk")
     adb("shell", "settings", "put", "secure", "immersive_mode_confirmations", "confirmed", check=False)
     adb("logcat", "-c")
-    adb("shell", "am", "start", "-W", "-n", f"{PACKAGE}/.MainActivity")
+    launch()
     shot("01-home", 15)
     # the consent form or a system dialog may cover the first launch
     for label in ("Consent", "Wait", "OK"):
         tap_text(label)
-    if tap_text("Play"):
-        shot("02-game", 5)
-        # use hints until level 1 is solved or they run out
-        for _ in range(3):
-            tap_text("Hint")
-            time.sleep(1)
-        shot("03-hint", 0)
-        back()
-    for number, label in enumerate(["All levels", "Rewards", "Themes", "Shop", "Passport", "Stats"], start=4):
+
+    # level 1 is the same for everyone: play it to the end
+    tap_text("Play")
+    time.sleep(4)
+    path = solve([3, 1, 2, 4, 7, 0, 8, 5, 6], 3, 3)
+    cells = board_cells(3, 3)
+    print("solution", path, flush=True)
+    tap(cells[path[0]])
+    # leave and come back: the board must still be there
+    time.sleep(1)
+    adb("shell", "am", "force-stop", PACKAGE)
+    launch()
+    shot("02-resume-home", 8)
+    tap_text("Resume")
+    time.sleep(3)
+    shot("03-resumed-board", 0)
+    for cell in path[1:]:
+        tap(cells[cell])
+        time.sleep(0.4)
+    shot("04-wave", 0)
+    shot("05-win", 4)
+    tap_text("Next level")
+    shot("06-level2", 4)
+    back()
+
+    for number, label in enumerate(["All levels", "Themes"], start=7):
         if tap_text(label):
             shot(f"{number:02d}-{label.split()[-1].lower()}", 4)
             back()
-    if tap_text("Play"):
-        # second tile row/column taps: enough to see tiles move
-        shot("10-daily-or-game", 4)
-        back()
+
+    # later skies and bigger boards
+    for name, level in (("09-london-night-snow", 5), ("10-paris-rain", 9), ("11-tokyo-snow", 13), ("12-dubai", 29),
+                        ("13-rome-6x6", 35), ("14-mumbai", 36)):
+        seed_save(level=level, reached=36, coins=500)
+        launch()
+        time.sleep(7)
+        tap_text("Play") or tap_text("Continue")
+        shot(name, 4)
+
     with open(f"{OUT}/logcat.txt", "w") as f:
         f.write(adb("logcat", "-d", "-v", "brief", "AndroidRuntime:E", "*:S"))
     print("crash log:")

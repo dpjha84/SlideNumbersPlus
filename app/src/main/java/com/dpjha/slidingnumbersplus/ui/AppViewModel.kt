@@ -52,6 +52,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     private var deals = 0
+    /** The board a hint was last paid for, and the tile it named. */
+    private var lastHint: Pair<List<Int>, Int>? = null
 
     init {
         audio.soundOn = player.soundOn
@@ -126,6 +128,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun deal(next: Attempt) {
         attempt = next
+        lastHint = null
         result = null
         hintBusy = false
         turn++
@@ -190,6 +193,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun hint(show: (Int) -> Unit) {
         val a = attempt ?: return
         if (result != null || hintBusy) return
+        val paid = lastHint
+        if (paid != null && paid.first == a.session.engine.tiles().toList()) return show(paid.second)
         if (player.hints <= 0) {
             message = "No hints left. Get more in the shop."
             return
@@ -205,7 +210,9 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             if (cell == null || attempt !== a || !engine.tiles().contentEquals(tiles)) return@launch
             a.session.markAssisted()
             update(player.copy(hints = player.hints - 1, stats = player.stats.copy(hintsUsed = player.stats.hintsUsed + 1)))
-            show(engine.tileAt(cell))
+            val tile = engine.tileAt(cell)
+            lastHint = tiles.toList() to tile
+            show(tile)
         }
     }
 

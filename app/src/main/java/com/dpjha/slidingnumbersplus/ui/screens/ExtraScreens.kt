@@ -77,7 +77,7 @@ private fun Page(vm: AppViewModel, title: String, subtitle: String, content: @Co
 
 private fun describe(r: Reward): String = listOfNotNull(
     if (r.coins > 0) "${r.coins} coins" else null,
-    if (r.gems > 0) "${r.gems} gems" else null,
+    if (r.gems > 0) "${r.gems} ${if (r.gems == 1) "gem" else "gems"}" else null,
     if (r.xp > 0) "${r.xp} XP" else null,
 ).joinToString(", ")
 
