@@ -127,7 +127,11 @@ data class Player(
         private fun decodeBoard(text: String): SavedBoard? {
             val p = text.split('|')
             if (p.size != 6) return null
-            fun ints(s: String) = s.split(' ').filter { it.isNotBlank() }.map { it.toIntOrNull() ?: return null }
+            fun ints(s: String): List<Int>? {
+                val words = s.split(' ').filter { it.isNotBlank() }
+                val numbers = words.mapNotNull { it.toIntOrNull() }
+                return numbers.takeIf { it.size == words.size }
+            }
             val level = p[0].toIntOrNull()?.takeIf { it >= 1 } ?: return null
             val shape = Levels.spec(level).shape
             val size = shape.rows * shape.cols
