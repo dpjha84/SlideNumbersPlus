@@ -103,7 +103,8 @@ def tap(point):
 
 
 def launch():
-    adb("shell", "am", "start", "-W", "-n", ACTIVITY)
+    # no -W: with the ad SDK on a slow emulator it can wait for minutes; callers sleep instead
+    adb("shell", "am", "start", "-n", ACTIVITY)
 
 
 def seed_save(**values):
@@ -127,7 +128,7 @@ def check_upgrade(name, path, content, level):
     adb("shell", f"run-as {PACKAGE} mkdir -p {folder}")
     adb("shell", f"run-as {PACKAGE} cp /data/local/tmp/legacy.bin {path}")
     launch()
-    time.sleep(8)
+    time.sleep(30)
     shot(name, 0)
     saved = adb("shell", f"run-as {PACKAGE} cat shared_prefs/snp3.xml", check=False)
     if f'<string name="level">{level}</string>' not in saved:
