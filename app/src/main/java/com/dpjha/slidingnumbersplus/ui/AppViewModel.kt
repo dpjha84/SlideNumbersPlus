@@ -114,8 +114,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val saved = player.board?.takeIf { !fresh && it.level == level }
         val session = if (saved != null) {
             val engine = PuzzleEngine(spec.shape.rows, spec.shape.cols, saved.tiles.toIntArray())
-            val par = Levels.par(Levels.newEngine(spec), spec.tour)
-            Session(engine, par, saved.moves, saved.history, saved.freeLeft, saved.assisted)
+            Session(engine, Levels.par(spec), saved.moves, saved.history, saved.freeLeft, saved.assisted)
         } else {
             Session.start(spec)
         }

@@ -63,7 +63,7 @@ class Session(
 
         fun start(spec: LevelSpec): Session {
             val engine = Levels.newEngine(spec)
-            return Session(engine, Levels.par(engine, spec.tour))
+            return Session(engine, Levels.par(spec))
         }
     }
 }

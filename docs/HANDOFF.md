@@ -4,7 +4,7 @@ Name (chosen by DP, replaces "Sliding Numbers+"): Play Store title **Sliding Num
 
 ## Who and what
 - Owner: DP, studio **Pixel Pocket** (Instagram @pixelpocket.apps).
-- Native Kotlin/Compose rebuild of **Sliding Numbers+**, now Sliding Numbers: City Puzzle (`com.dpjha.slidingnumbersplus`), versionCode 300, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
+- Native Kotlin/Compose rebuild of **Sliding Numbers+**, now Sliding Numbers: City Puzzle (`com.dpjha.slidingnumbersplus`), versionCode 302, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
 - Work is on branch `v3-rewrite`. `main` holds an unrelated old React project.
 - There is no Android SDK in the cloud workspace: **CI is the only compiler**. Push, then read the result.
 
@@ -19,7 +19,7 @@ DP approved the web preview and asked for the full build. The reference is `docs
 ## What is built
 | Area | Where |
 |---|---|
-| Engine, levels, par, moods, daily puzzle | `game/PuzzleEngine.kt`, `game/Levels.kt` |
+| Engine, levels, par, moods, daily puzzle | `game/PuzzleEngine.kt`, `game/Levels.kt`, `game/BoardTable.kt` (pre-solved boards: par = about 1.7 x best moves + 2) |
 | Moves, undo, free moves, hints | `game/Session.kt`, `game/Solver.kt` |
 | Save format, economy, streak, chests, achievements, cloud merge | `game/Player.kt`, `game/Rules.kt` |
 | Saving and upgrade from the 2.x and MAUI builds | `data/GameStore.kt` |

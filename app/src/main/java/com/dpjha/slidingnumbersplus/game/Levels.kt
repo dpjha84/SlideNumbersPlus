@@ -1,6 +1,5 @@
 package com.dpjha.slidingnumbersplus.game
 
-import kotlin.math.roundToInt
 import kotlin.random.Random
 
 data class BoardShape(val rows: Int, val cols: Int)
@@ -22,6 +21,8 @@ data class LevelSpec(
     val stepInCity: Int,
     val scrambleSteps: Int,
     val seed: Long,
+    /** Fewest moves a solver found for this board. Targets are set from it. */
+    val best: Int,
 )
 
 /** Level rules: a new city every 5 levels, and the board grows one rung of the ladder per city. */
@@ -76,9 +77,9 @@ object Levels {
         val globalCity = tour * ladder.size + rung
         val cityIndex = globalCity % cities.size
         val shape = ladder[rung]
-        val cells = shape.rows * shape.cols
-        // Scramble depth grows within a city and a little more each tour.
-        val depthFactor = 5.0 + step * 1.2 + tour.coerceAtMost(6) * 1.5
+        // Tours past the end of the table replay its last tour's boards under new cities and skies.
+        val tableTours = BoardTable.levels.size / 3 / levelsPerTour
+        val entry = (tour.coerceAtMost(tableTours - 1) * levelsPerTour + inTour) * 3
         return LevelSpec(
             level = level,
             tour = tour,
@@ -88,29 +89,37 @@ object Levels {
             mood = mood(cityIndex, step + globalCity / cities.size * 2),
             shape = shape,
             stepInCity = step,
-            scrambleSteps = (cells * depthFactor).roundToInt(),
-            seed = 0x5EED0000L + level * 7919L,
+            scrambleSteps = BoardTable.levels[entry + 1],
+            seed = BoardTable.LEVEL_SEED + BoardTable.levels[entry],
+            best = BoardTable.levels[entry + 2],
         )
     }
 
     /** One shared puzzle per UTC day. */
     fun daily(epochDay: Long): LevelSpec {
         val shapes = listOf(BoardShape(3, 3), BoardShape(4, 3), BoardShape(4, 4))
-        val shape = shapes[(epochDay % shapes.size).toInt()]
+        val shapeIndex = (epochDay % shapes.size).toInt()
+        val shape = shapes[shapeIndex]
+        val pick = (epochDay / shapes.size % BoardTable.DAILY_PER_SHAPE).toInt()
+        val entry = (shapeIndex * BoardTable.DAILY_PER_SHAPE + pick) * 3
         // the first tour has the fully painted skylines
         val cityIndex = (epochDay % ladder.size).toInt()
         return LevelSpec(
             level = 0, tour = 0, cityIndex = cityIndex, city = cities[cityIndex],
             mood = mood(cityIndex, (epochDay % 5).toInt()), shape = shape, stepInCity = 0,
-            scrambleSteps = shape.rows * shape.cols * 7, seed = 0xDA11L * 100_000 + epochDay,
+            scrambleSteps = BoardTable.daily[entry + 1],
+            seed = BoardTable.DAILY_SEED + BoardTable.daily[entry],
+            best = BoardTable.daily[entry + 2],
         )
     }
 
-    /** Par is how many moves a tidy solve should take. Chain slides count as one move, so this is generous. */
-    fun par(engine: PuzzleEngine, tour: Int): Int {
-        val raw = engine.manhattan() * 1.2 + 3
-        val tighter = raw * (1.0 - 0.04 * tour.coerceAtMost(5))
-        return tighter.roundToInt().coerceAtLeast(3)
+    /**
+     * The three-star target: about 1.7 times the best known solution plus two moves of grace,
+     * tightening in later tours to 1.5 times. Two stars reach one and a half times this.
+     */
+    fun par(spec: LevelSpec): Int {
+        val percent = (170 - 4 * spec.tour).coerceAtLeast(150)
+        return (spec.best * percent + 99) / 100 + 2
     }
 
     fun newEngine(spec: LevelSpec): PuzzleEngine {
