@@ -160,7 +160,7 @@ fun HomeScreen(vm: AppViewModel, calm: Boolean, actions: HomeActions) {
 private fun Logo(modifier: Modifier) {
     val context = LocalContext.current
     val font = remember { ResourcesCompat.getFont(context, R.font.lilita_one) }
-    Canvas(modifier.semantics { contentDescription = "Sliding Numbers plus" }) {
+    Canvas(modifier.semantics { contentDescription = "Sliding Numbers" }) {
         val u = minOf(size.width / 350f, size.height / 140f)
         val left = (size.width - 350 * u) / 2
         drawIntoCanvas { canvas ->
