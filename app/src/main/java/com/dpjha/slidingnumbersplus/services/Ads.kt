@@ -32,6 +32,8 @@ class Ads(private val activity: Activity) {
 
     var rewardedReady by mutableStateOf(false)
         private set
+    val hasRewarded = BuildConfig.ADS_REWARDED.isNotBlank()
+    private var loadingRewarded = false
     /** True once consent is settled and the ad SDK has started. */
     var ready by mutableStateOf(false)
         private set
@@ -74,14 +76,17 @@ class Ads(private val activity: Activity) {
     fun showPrivacyChoices() = UserMessagingPlatform.showPrivacyOptionsForm(activity) {}
 
     private fun loadRewarded() {
-        if (BuildConfig.ADS_REWARDED.isBlank() || rewarded != null) return
+        if (!hasRewarded || rewarded != null || loadingRewarded) return
+        loadingRewarded = true
         RewardedAd.load(activity, BuildConfig.ADS_REWARDED, AdRequest.Builder().build(), object : RewardedAdLoadCallback() {
             override fun onAdLoaded(ad: RewardedAd) {
+                loadingRewarded = false
                 rewarded = ad
                 rewardedReady = true
             }
 
             override fun onAdFailedToLoad(error: LoadAdError) {
+                loadingRewarded = false
                 rewardedReady = false
             }
         })
@@ -94,6 +99,11 @@ class Ads(private val activity: Activity) {
                 interstitial = ad
             }
         })
+    }
+
+    /** Tries again after a load that failed, for example while offline. */
+    fun retryRewarded() {
+        if (ready) loadRewarded()
     }
 
     fun showRewarded(onReward: () -> Unit) {

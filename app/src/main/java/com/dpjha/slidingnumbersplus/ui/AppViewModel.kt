@@ -50,6 +50,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** True once the win card is up, after the tiles have taken their bow. */
     var winShown by mutableStateOf(false)
     var message by mutableStateOf<String?>(null)
+    /** The booster the player just asked for and has none of: an ad can refill it. */
+    var emptyBooster by mutableStateOf<Item?>(null)
     var hintBusy by mutableStateOf(false)
         private set
 
@@ -183,7 +185,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (player.undos <= 0) {
-            message = "No undos left. Get more in the shop."
+            emptyBooster = Item.UNDOS
             return
         }
         if (a.session.undo().isEmpty()) return
@@ -199,7 +201,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         val paid = lastHint
         if (paid != null && paid.first == a.session.engine.tiles().toList()) return show(paid.second)
         if (player.hints <= 0) {
-            message = "No hints left. Get more in the shop."
+            emptyBooster = Item.HINTS
             return
         }
         click()
@@ -227,7 +229,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             return
         }
         if (player.frees <= 0) {
-            message = "No free-move packs left. Get more in the shop."
+            emptyBooster = Item.FREES
             return
         }
         click()
@@ -235,6 +237,13 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         update(player.copy(frees = player.frees - 1))
         message = "Your next ${Rules.FREE_MOVES_PER_PACK} moves don't count"
         changed(a)
+    }
+
+    /** Pays out for a rewarded ad watched to the end. */
+    fun refill(item: Item) {
+        update(Rules.refill(player, item))
+        audio.play(Sfx.COIN)
+        message = "You got ${Rules.refillText(item)}"
     }
 
     fun next() {

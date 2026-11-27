@@ -186,7 +186,7 @@ private fun Power(icon: ImageVector, label: String, left: Int, tint: Color, modi
             Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-6).dp).size(24.dp).clip(CircleShape).background(Coral).border(2.dp, Color.White, CircleShape),
             contentAlignment = Alignment.Center,
         ) {
-            Text(if (left > 99) "99" else "$left", style = TextStyle(fontFamily = Display, fontSize = 12.sp, color = Color.White))
+            Text(if (left > 99) "99" else if (left <= 0) "Ad" else "$left", style = TextStyle(fontFamily = Display, fontSize = 12.sp, color = Color.White))
         }
     }
 }

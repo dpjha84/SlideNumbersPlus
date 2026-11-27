@@ -1,5 +1,8 @@
 package com.dpjha.slidingnumbersplus
 
+import com.dpjha.slidingnumbersplus.game.Item
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
 import com.dpjha.slidingnumbersplus.ui.screens.SplashScreen
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
@@ -113,6 +116,7 @@ class MainActivity : ComponentActivity() {
         val screen = vm.screen
         val spec = vm.sceneSpec
         BackHandler(enabled = screen != Screen.HOME) { vm.goHome() }
+        LaunchedEffect(screen) { vm.emptyBooster = null }
 
         val result = vm.result
         LaunchedEffect(result) {
@@ -160,7 +164,38 @@ class MainActivity : ComponentActivity() {
             if (ads.hasBanner) BannerAd(ads.ready, Modifier.padding(top = 6.dp))
             }
             if (won && !calm) Celebration(vm.audio)
+            vm.emptyBooster?.let { RefillOffer(it) }
         }
+    }
+
+    /** Asks before playing an ad, and says what it pays. */
+    @Composable
+    private fun RefillOffer(item: Item) {
+        val close = { vm.emptyBooster = null }
+        LaunchedEffect(item) { ads.retryRewarded() }
+        AlertDialog(
+            onDismissRequest = close,
+            containerColor = Cream,
+            titleContentColor = Ink,
+            textContentColor = Ink,
+            title = { Text("Out of boosters", color = Ink) },
+            text = {
+                Text(
+                    when {
+                        !ads.hasRewarded -> "Get more in the shop."
+                        ads.rewardedReady -> "Watch a short ad to get ${Rules.refillText(item)}."
+                        else -> "No ad is ready yet. Try again in a few seconds."
+                    },
+                    color = Ink,
+                )
+            },
+            confirmButton = {
+                if (ads.rewardedReady) {
+                    TextButton(onClick = { close(); ads.showRewarded { vm.refill(item) } }) { Text("Watch ad", color = Ink) }
+                }
+            },
+            dismissButton = { TextButton(onClick = close) { Text("Not now", color = Ink) } },
+        )
     }
 
     @Composable

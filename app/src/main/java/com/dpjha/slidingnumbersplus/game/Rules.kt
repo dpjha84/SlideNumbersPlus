@@ -31,6 +31,21 @@ data class WinResult(
 
 object Rules {
     const val FREE_MOVES_PER_PACK = 5
+
+    /** What one rewarded ad gives when a booster runs out. */
+    fun refill(player: Player, item: Item): Player = when (item) {
+        Item.HINTS -> player.copy(hints = player.hints + 3)
+        Item.UNDOS -> player.copy(undos = player.undos + 5)
+        Item.FREES -> player.copy(frees = player.frees + 1)
+        Item.FREEZE -> player
+    }
+
+    fun refillText(item: Item): String = when (item) {
+        Item.HINTS -> "3 hints"
+        Item.UNDOS -> "5 undos"
+        Item.FREES -> "1 free-move pack"
+        Item.FREEZE -> ""
+    }
     const val AD_COINS = 60
     const val MAX_FREEZES = 2
     val chestDays = listOf(3, 7, 14, 30)
