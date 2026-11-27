@@ -70,3 +70,29 @@ jobs:
           path: app/build/outputs/bundle/release/*.aab
           if-no-files-found: error
           retention-days: 14
+
+  # one fixed link that downloads the newest debug APK on a phone, without signing in or unzipping
+  test-build:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/v3-rewrite'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sliding-numbers-debug-apk
+          path: apk
+      - name: Replace the APK on the test-build prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          cp apk/*.apk SlidingNumbers-test.apk
+          notes="Debug build of commit $GITHUB_SHA. Test ads only. Not for release."
+          if gh release view test-build --repo "$REPO" >/dev/null 2>&1; then
+            gh release upload test-build SlidingNumbers-test.apk --clobber --repo "$REPO"
+            gh release edit test-build --notes "$notes" --repo "$REPO"
+          else
+            gh release create test-build SlidingNumbers-test.apk --prerelease --target "$GITHUB_SHA" --title "Test build" --notes "$notes" --repo "$REPO"
+          fi
