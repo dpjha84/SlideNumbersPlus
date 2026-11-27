@@ -293,7 +293,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleMusic() {
         update(player.copy(musicOn = !player.musicOn))
         audio.musicOn = player.musicOn
-        message = if (player.musicOn) "Music on" else "Music off"
+        message = if (!player.musicOn) "Music off" else if (screen == Screen.GAME) "Music on" else "Music on. It plays during puzzles."
     }
 
     fun toggleSound() {

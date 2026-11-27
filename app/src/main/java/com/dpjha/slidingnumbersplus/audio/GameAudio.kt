@@ -2,6 +2,7 @@ package com.dpjha.slidingnumbersplus.audio
 
 import android.content.Context
 import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.SoundPool
 import android.os.Build
@@ -52,8 +53,21 @@ class GameAudio(context: Context) {
     private var foreground = false
     private var duckUntil = 0L
 
+    private val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+    /** Another app was already playing when we were about to start. */
+    private var othersPlaying = false
+    /** Set when the player switches music on by hand: they want ours, whatever else is playing. */
+    private var insisted = false
+
     var soundOn = true
     var musicOn = true
+        set(value) {
+            if (value && !field) insisted = true
+            field = value
+            refresh()
+        }
+    /** Music and rain belong to the puzzle screen; every other screen is quiet. */
+    var inPuzzle = false
         set(value) {
             field = value
             refresh()
@@ -72,12 +86,14 @@ class GameAudio(context: Context) {
         private val step = object : Runnable {
             override fun run() {
                 if (released) return
-                level = if (level < goal) minOf(goal, level + target / 20f) else maxOf(goal, level - target / 14f)
+                level = if (level < goal) minOf(goal, level + target / 42f) else maxOf(goal, level - target / 14f)
                 player?.setVolume(level, level)
                 if (level != goal) handler.postDelayed(this, 60)
                 else if (goal == 0f) release()
             }
         }
+
+        val isPlaying: Boolean get() = !released && player?.isPlaying == true
 
         fun play() {
             player?.start()
@@ -125,14 +141,17 @@ class GameAudio(context: Context) {
 
     private fun refresh() {
         if (!foreground) return
-        val wanted = if (musicOn) wantedMusic else 0
+        // only meaningful while we are silent ourselves, or we would hear our own track
+        if (music?.isPlaying != true && rain?.isPlaying != true) othersPlaying = audioManager?.isMusicActive == true
+        val allowed = musicOn && inPuzzle && (insisted || !othersPlaying)
+        val wanted = if (allowed) wantedMusic else 0
         if (music?.res != wanted) {
             music?.stop()
             music = if (wanted != 0) Loop(wanted, MUSIC_VOLUME).also { it.play() } else null
         } else {
             music?.play()
         }
-        val wantRain = musicOn && wantedRain
+        val wantRain = allowed && wantedRain
         if (!wantRain) {
             rain?.stop()
             rain = null

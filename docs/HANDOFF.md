@@ -47,3 +47,5 @@ DP approved the web preview and asked for the full build. The reference is `docs
 
 ## Possible next steps
 Richer art and music for cities 8 to 21, city arrival card, daily leaderboard, level-jump debug shortcut, store graphics and launch reel.
+
+Music (DP, 27 Nov): silent outside the puzzle screen, fades in over about 2.5 s on a puzzle, and stays off if another app is already playing unless the player switches it on by hand.

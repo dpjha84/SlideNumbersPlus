@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity() {
         val spec = vm.sceneSpec
         BackHandler(enabled = screen != Screen.HOME) { vm.goHome() }
         // an empty booster is marked "Ad" with what it pays, so tapping it plays the ad straight away
+        LaunchedEffect(screen) { vm.audio.inPuzzle = screen == Screen.GAME }
         val wanted = vm.emptyBooster
         LaunchedEffect(wanted) {
             if (wanted == null) return@LaunchedEffect
