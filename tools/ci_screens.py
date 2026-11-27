@@ -123,10 +123,13 @@ def main():
     time.sleep(90)
     adb("logcat", "-c")
     launch()
-    shot("01-home", 15)
-    # the consent form or a system dialog may cover the first launch
-    for label in ("Consent", "Wait", "OK"):
-        tap_text(label)
+    time.sleep(15)
+    # system dialogs of a slow emulator, or the consent form, may cover the first launch
+    for _ in range(4):
+        if not (tap_text("Wait") or tap_text("Consent")):
+            break
+        time.sleep(5)
+    shot("01-home", 2)
 
     report_hangs()
     print(adb("shell", "dumpsys", "gfxinfo", PACKAGE, check=False)[:1500], flush=True)
