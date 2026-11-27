@@ -157,7 +157,7 @@ fun HomeScreen(vm: AppViewModel, calm: Boolean, actions: HomeActions) {
 }
 
 @Composable
-private fun Logo(modifier: Modifier) {
+internal fun Logo(modifier: Modifier) {
     val context = LocalContext.current
     val font = remember { ResourcesCompat.getFont(context, R.font.lilita_one) }
     Canvas(modifier.semantics { contentDescription = "Sliding Numbers" }) {

@@ -1,5 +1,10 @@
 package com.dpjha.slidingnumbersplus
 
+import com.dpjha.slidingnumbersplus.ui.screens.SplashScreen
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.graphics.Color as AndroidColor
@@ -75,9 +80,14 @@ class MainActivity : ComponentActivity() {
         ads = Ads(this)
         ads.start()
         val calm = Settings.Global.getFloat(contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
+        val coldStart = savedInstanceState == null
         setContent {
             SlidingNumbersTheme {
-                App(calm)
+                var splash by remember { mutableStateOf(coldStart) }
+                Box(Modifier.fillMaxSize()) {
+                    App(calm)
+                    if (splash) SplashScreen(calm) { splash = false }
+                }
             }
         }
     }

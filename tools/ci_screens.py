@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 PACKAGE = "com.dpjha.slidingnumbersplus.debug"
 ACTIVITY = f"{PACKAGE}/com.dpjha.slidingnumbersplus.MainActivity"
-# push a change to this file to run the check on the branch (last: banner ad)
+# push a change to this file to run the check on the branch (last: icon and splash)
 OUT = "screens"
 
 
@@ -196,6 +196,7 @@ def main():
     time.sleep(1)
     adb("shell", "am", "force-stop", PACKAGE)
     launch()
+    shot("01b-splash", 3)
     shot("02-resume-home", 8)
     if not tap_text("Resume"):
         raise SystemExit("the saved board was not offered")
