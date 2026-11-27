@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Paste the ids from Play Console > Play Games Services here. Empty values switch the feature off. -->
+<resources>
+    <string name="games_app_id" translatable="false"></string>
+    <string name="gpgs_leaderboard_stars" translatable="false"></string>
+    <string name="gpgs_achievement_first_win" translatable="false"></string>
+    <string name="gpgs_achievement_three_stars" translatable="false"></string>
+    <string name="gpgs_achievement_london_master" translatable="false"></string>
+    <string name="gpgs_achievement_paris_master" translatable="false"></string>
+    <string name="gpgs_achievement_new_york_master" translatable="false"></string>
+    <string name="gpgs_achievement_25_levels" translatable="false"></string>
+</resources>

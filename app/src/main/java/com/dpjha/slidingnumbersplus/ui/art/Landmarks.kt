@@ -7,6 +7,11 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 
+enum class LandmarkType {
+    BIG_BEN, EIFFEL, EMPIRE, TOKYO_TOWER, OPERA, BURJ, COLOSSEUM, ARCH, MOUNTAIN, PYRAMIDS,
+    DOMES, TRIO, BRIDGE, SPIRES, HOUSES, CLUSTER, PAGODA, NTOWER,
+}
+
 internal fun Color.a(m: Float): Color = copy(alpha = (alpha * m).coerceIn(0f, 1f))
 
 internal fun DrawScope.box(c: Color, x: Float, y: Float, w: Float, h: Float) = drawRect(c, Offset(x, y), Size(w, h))

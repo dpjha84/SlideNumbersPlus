@@ -1,35 +1,36 @@
 package com.dpjha.slidingnumbersplus.ui.theme
 
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import com.dpjha.slidingnumbersplus.R
 
-private val CityNight = Color(0xFF101322)
-private val RaisedNavy = Color(0xFF202944)
-private val Coral = Color(0xFFFF687A)
-private val Gold = Color(0xFFFFD166)
-private val Mint = Color(0xFF48D6B0)
-private val SoftText = Color(0xFFB7C0D8)
+val Ink = Color(0xFF150F33)
+val Panel = Color(0xA818103A)
+val Line = Color(0x29FFECC8)
+val Cream = Color(0xFFFFF4DC)
+val Gold = Color(0xFFFFC54D)
+val GoldDark = Color(0xFFC9771A)
+val Coral = Color(0xFFFF6B6B)
+val Teal = Color(0xFF43E6D2)
+val Violet = Color(0xFF9B7BFF)
 
-private val GameColors = darkColorScheme(
-    primary = Coral,
-    onPrimary = Color.White,
-    secondary = Gold,
-    onSecondary = CityNight,
-    tertiary = Mint,
-    background = CityNight,
-    surface = RaisedNavy,
-    onBackground = Color.White,
-    onSurface = Color.White,
-    surfaceVariant = Color(0xFF303A56),
-    onSurfaceVariant = SoftText,
-)
+val Display = FontFamily(Font(R.font.lilita_one))
+val Body = FontFamily(Font(R.font.nunito_bold, FontWeight.Bold), Font(R.font.nunito_black, FontWeight.Black))
 
 @Composable
 fun SlidingNumbersTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = GameColors,
-        content = content,
-    )
+    val colors = darkColorScheme(primary = Gold, onPrimary = Ink, secondary = Teal, background = Ink, surface = Ink, onSurface = Cream, onBackground = Cream)
+    MaterialTheme(colorScheme = colors) {
+        CompositionLocalProvider(LocalTextStyle provides TextStyle(fontFamily = Body, fontWeight = FontWeight.Bold, color = Cream)) {
+            content()
+        }
+    }
 }

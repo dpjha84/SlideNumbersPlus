@@ -11,6 +11,12 @@ val releaseKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").o
 val hasReleaseSigning = listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
     .all { !it.isNullOrBlank() }
 
+// Real AdMob ids come from -P properties or environment variables; they are not kept in the repo.
+fun adsValue(name: String): String =
+    providers.gradleProperty(name).orElse(providers.environmentVariable(name)).orNull.orEmpty()
+
+val testAdsAppId = "ca-app-pub-3940256099942544~3347511713"
+
 android {
     namespace = "com.dpjha.slidingnumbersplus"
     compileSdk = 36
@@ -38,8 +44,17 @@ android {
     buildTypes {
         debug {
             versionNameSuffix = "-debug"
+            // Google's public test units
+            manifestPlaceholders["adsAppId"] = testAdsAppId
+            buildConfigField("String", "ADS_REWARDED", "\"ca-app-pub-3940256099942544/5224354917\"")
+            buildConfigField("String", "ADS_INTERSTITIAL", "\"ca-app-pub-3940256099942544/1033173712\"")
         }
         release {
+            // With no ids the ad SDK is never started; the placeholder only keeps the manifest valid.
+            val appId = adsValue("ADS_APP_ID")
+            manifestPlaceholders["adsAppId"] = appId.ifBlank { testAdsAppId }
+            buildConfigField("String", "ADS_REWARDED", "\"${if (appId.isBlank()) "" else adsValue("ADS_REWARDED")}\"")
+            buildConfigField("String", "ADS_INTERSTITIAL", "\"${if (appId.isBlank()) "" else adsValue("ADS_INTERSTITIAL")}\"")
             isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -64,6 +79,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     testOptions {
@@ -83,6 +99,13 @@ dependencies {
 
     val composeBom = platform("androidx.compose:compose-bom:2025.10.00")
     implementation(composeBom)
+
+    // reads progress saved by the 2.x build
+    implementation("androidx.datastore:datastore-preferences:1.1.7")
+    implementation("com.google.android.gms:play-services-games-v2:20.1.2")
+    implementation("com.google.android.gms:play-services-ads:23.6.0")
+    implementation("com.google.android.ump:user-messaging-platform:3.1.0")
+    implementation("com.google.android.play:review-ktx:2.0.2")
     androidTestImplementation(composeBom)
 
     testImplementation("junit:junit:4.13.2")

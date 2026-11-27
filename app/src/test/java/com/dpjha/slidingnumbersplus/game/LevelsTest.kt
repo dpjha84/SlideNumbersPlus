@@ -16,7 +16,7 @@ class LevelsTest {
     @Test
     fun boardGrowsAlongTheLadder() {
         assertEquals(BoardShape(3, 3), Levels.spec(1).shape)
-        assertEquals(BoardShape(3, 4), Levels.spec(6).shape)
+        assertEquals(BoardShape(4, 3), Levels.spec(6).shape)
         assertEquals(BoardShape(4, 4), Levels.spec(11).shape)
         assertEquals(BoardShape(6, 6), Levels.spec(35).shape)
     }

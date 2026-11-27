@@ -1,1 +1,3 @@
 -keep class com.google.android.gms.games.** { *; }
+-keep class com.google.android.gms.ads.** { *; }
+-keep class com.google.android.ump.** { *; }
