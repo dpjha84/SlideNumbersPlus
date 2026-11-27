@@ -24,7 +24,9 @@ def shot(name, wait=3):
 
 
 def nodes():
-    for _ in range(4):
+    # uiautomator gives up while something on screen is animating, so try several times
+    for _ in range(8):
+        adb("shell", "rm", "-f", "/sdcard/ui.xml", check=False)
         adb("shell", "uiautomator", "dump", "/sdcard/ui.xml", check=False)
         xml = adb("shell", "cat", "/sdcard/ui.xml", check=False)
         if xml.startswith("<?xml"):
@@ -139,7 +141,8 @@ def main():
     adb("shell", "am", "force-stop", PACKAGE)
     launch()
     shot("02-resume-home", 8)
-    tap_text("Resume")
+    if not tap_text("Resume"):
+        raise SystemExit("the saved board was not offered")
     time.sleep(3)
     shot("03-resumed-board", 0)
     for cell in path[1:]:
