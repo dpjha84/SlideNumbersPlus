@@ -32,6 +32,20 @@ def nodes():
     return []
 
 
+def report_hangs():
+    """Prints why the system thought the app hung, if it did."""
+    log = adb("logcat", "-d", "-v", "brief", "ActivityManager:E", "*:S", check=False)
+    if "ANR in" not in log:
+        print("no ANR", flush=True)
+        return
+    print(log[log.index("ANR in"):][:3000], flush=True)
+    trace = adb("shell", "dumpsys", "activity", "lastanr-traces", check=False)
+    start = trace.find(f"Cmd line: {PACKAGE}")
+    main_at = trace.find('"main"', start)
+    print("main thread at the hang:")
+    print(trace[main_at:main_at + 3500], flush=True)
+
+
 def tap_text(label):
     for node in nodes():
         if node.get("text") == label or node.get("content-desc") == label:
@@ -109,6 +123,9 @@ def main():
     for label in ("Consent", "Wait", "OK"):
         tap_text(label)
 
+    report_hangs()
+    print(adb("shell", "dumpsys", "gfxinfo", PACKAGE, check=False)[:1500], flush=True)
+
     # level 1 is the same for everyone: play it to the end
     tap_text("Play")
     time.sleep(4)
@@ -151,6 +168,7 @@ def main():
 
     with open(f"{OUT}/logcat.txt", "w") as f:
         f.write(adb("logcat", "-d", "-v", "brief", "AndroidRuntime:E", "*:S"))
+    report_hangs()
     print("crash log:")
     print(open(f"{OUT}/logcat.txt").read()[-6000:])
     print("running:", adb("shell", "pidof", PACKAGE, check=False).strip() or "NO")

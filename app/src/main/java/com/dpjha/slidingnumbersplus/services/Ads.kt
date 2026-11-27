@@ -16,6 +16,7 @@ import com.google.android.gms.ads.rewarded.RewardedAd
 import com.google.android.gms.ads.rewarded.RewardedAdLoadCallback
 import com.google.android.ump.ConsentRequestParameters
 import com.google.android.ump.UserMessagingPlatform
+import kotlin.concurrent.thread
 
 /**
  * Rewarded and between-level ads, behind the consent form. Debug builds use Google's test units.
@@ -43,12 +44,16 @@ class Ads(private val activity: Activity) {
     }
 
     private fun load() {
-        if (!started) {
-            started = true
-            MobileAds.initialize(activity)
+        if (started) return
+        started = true
+        // starting the ad SDK is slow, so keep it off the main thread
+        thread {
+            MobileAds.initialize(activity.applicationContext)
+            activity.runOnUiThread {
+                loadRewarded()
+                loadInterstitial()
+            }
         }
-        loadRewarded()
-        loadInterstitial()
     }
 
     private fun loadRewarded() {
