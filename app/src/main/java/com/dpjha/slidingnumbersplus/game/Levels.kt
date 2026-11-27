@@ -97,7 +97,8 @@ object Levels {
     fun daily(epochDay: Long): LevelSpec {
         val shapes = listOf(BoardShape(3, 3), BoardShape(4, 3), BoardShape(4, 4))
         val shape = shapes[(epochDay % shapes.size).toInt()]
-        val cityIndex = (epochDay % cities.size).toInt()
+        // the first tour has the fully painted skylines
+        val cityIndex = (epochDay % ladder.size).toInt()
         return LevelSpec(
             level = 0, tour = 0, cityIndex = cityIndex, city = cities[cityIndex],
             mood = mood(cityIndex, (epochDay % 5).toInt()), shape = shape, stepInCity = 0,

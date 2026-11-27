@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,7 @@ import com.dpjha.slidingnumbersplus.ui.AppViewModel
 import com.dpjha.slidingnumbersplus.ui.Screen
 import com.dpjha.slidingnumbersplus.ui.art.Backdrop
 import com.dpjha.slidingnumbersplus.ui.art.Palette
+import com.dpjha.slidingnumbersplus.ui.screens.Celebration
 import com.dpjha.slidingnumbersplus.ui.screens.GameScreen
 import com.dpjha.slidingnumbersplus.ui.screens.HomeActions
 import com.dpjha.slidingnumbersplus.ui.screens.HomeScreen
@@ -114,6 +116,10 @@ class MainActivity : ComponentActivity() {
         Box(Modifier.fillMaxSize().background(Ink)) {
             Backdrop(Palette(spec.cityIndex, spec.mood), playing = screen == Screen.GAME, calm = calm, celebrate = vm.result != null)
             if (screen != Screen.HOME && screen != Screen.GAME) Box(Modifier.fillMaxSize().background(Color(0xE0120A30)))
+            val won = screen == Screen.GAME && vm.result != null
+            if (won && vm.winShown) {
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0.15f to Color.Transparent, 0.65f to Color(0xC810082C))))
+            }
             Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.TopCenter) {
                 AnimatedContent(
                     targetState = screen,
@@ -134,6 +140,7 @@ class MainActivity : ComponentActivity() {
                 }
                 Message()
             }
+            if (won && !calm) Celebration(vm.audio)
         }
     }
 

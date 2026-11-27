@@ -47,6 +47,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** Bumped after every change to the board, so counters redraw. */
     var turn by mutableIntStateOf(0)
         private set
+    /** True once the win card is up, after the tiles have taken their bow. */
+    var winShown by mutableStateOf(false)
     var message by mutableStateOf<String?>(null)
     var hintBusy by mutableStateOf(false)
         private set
@@ -129,6 +131,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     private fun deal(next: Attempt) {
         attempt = next
         lastHint = null
+        winShown = false
         result = null
         hintBusy = false
         turn++

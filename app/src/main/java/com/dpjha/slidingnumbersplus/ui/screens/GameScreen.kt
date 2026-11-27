@@ -96,7 +96,7 @@ fun GameScreen(vm: AppViewModel, attempt: Attempt, calm: Boolean, onNext: () -> 
     val spec = attempt.spec
     val effects = remember(attempt.id) { BoardEffects() }
     val result = vm.result
-    var showWin by remember(attempt.id) { mutableStateOf(false) }
+    val showWin = vm.winShown && result != null
 
     // reading vm.turn redraws the counters after each move
     @Suppress("UNUSED_VARIABLE") val turn = vm.turn
@@ -111,7 +111,7 @@ fun GameScreen(vm: AppViewModel, attempt: Attempt, calm: Boolean, onNext: () -> 
         vm.audio.buzz(90, 140)
         effects.wave()
         delay(1400)
-        showWin = true
+        vm.winShown = true
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -160,7 +160,6 @@ fun GameScreen(vm: AppViewModel, attempt: Attempt, calm: Boolean, onNext: () -> 
                 Power(Icons.Rounded.Bolt, "Free moves", player.frees, Color(0xFFFF9AD0), Modifier.weight(1f)) { vm.useFreeMoves() }
             }
         }
-        if (result != null && !calm) Celebration(vm.audio)
         if (result != null && showWin) WinPanel(vm, attempt, result, calm, onNext)
     }
 }
@@ -224,7 +223,6 @@ private fun WinPanel(vm: AppViewModel, attempt: Attempt, result: WinResult, calm
 
     Box(
         Modifier.fillMaxSize().alpha(appear.value)
-            .background(Brush.verticalGradient(0.2f to Color.Transparent, 0.7f to Color(0xC010082C)))
             // swallow taps meant for the board underneath
             .clickable(remember { MutableInteractionSource() }, indication = null) {},
     ) {

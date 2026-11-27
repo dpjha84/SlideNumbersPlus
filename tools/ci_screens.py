@@ -128,6 +128,7 @@ def main():
         tap(cells[cell])
         time.sleep(0.4)
     shot("04-wave", 0)
+    shot("04b-fireworks", 1)
     shot("05-win", 4)
     tap_text("Next level")
     shot("06-level2", 4)
@@ -144,7 +145,7 @@ def main():
         seed_save(level=level, reached=36, coins=500)
         launch()
         time.sleep(7)
-        tap_text("Play") or tap_text("Continue")
+        tap_text("Continue") or tap_text("Resume")
         shot(name, 4)
 
     with open(f"{OUT}/logcat.txt", "w") as f:
