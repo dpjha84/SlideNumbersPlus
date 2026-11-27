@@ -65,19 +65,29 @@ class BoardEffects {
     var bumpTile = 0
     var bumpAt = 0L
     var waveAt = 0L
-    var now = 0L
+    /** While now is before this, the board redraws on every frame. */
+    var busyUntil = 0L
+        private set
+    private val now: Long get() = System.nanoTime()
+
+    fun wake(millis: Long = 600) {
+        busyUntil = maxOf(busyUntil, now + millis * 1_000_000)
+    }
 
     fun hint(tile: Int) {
+        wake(1_800)
         hintTile = tile
         hintAt = now
     }
 
     fun bump(tile: Int) {
+        wake()
         bumpTile = tile
         bumpAt = now
     }
 
     fun wave() {
+        wake(2_000)
         waveAt = now
     }
 
@@ -123,6 +133,8 @@ fun PuzzleBoard(
     cellDp: Float,
     effects: BoardEffects,
     calm: Boolean,
+    /** Changes whenever the engine does, including undo. */
+    turn: Int,
     onPress: (Int) -> Unit,
     onPlaced: (Int) -> Unit,
     modifier: Modifier = Modifier,
@@ -157,12 +169,14 @@ fun PuzzleBoard(
     }
 
     val frame = remember { mutableLongStateOf(0L) }
-    LaunchedEffect(Unit) {
+    // full frame rate only while something moves; otherwise just often enough for the weather
+    val idleStep = if (!calm && palette.weather != Weather.CLEAR) 48_000_000L else 250_000_000L
+    LaunchedEffect(anim, effects, idleStep) {
         while (true) withFrameNanos {
-            effects.now = it
-            frame.longValue = it
+            if (anim.drag != null || System.nanoTime() < effects.busyUntil || it - frame.longValue >= idleStep) frame.longValue = it
         }
     }
+    LaunchedEffect(turn, palette.id, skin) { effects.wake() }
     val press by rememberUpdatedState(onPress)
     val placed by rememberUpdatedState(onPlaced)
     val (rim, mid, dark) = frameColors(palette)
@@ -184,6 +198,7 @@ fun PuzzleBoard(
                     awaitEachGesture {
                         val down = awaitFirstDown()
                         down.consume()
+                        effects.wake()
                         val c = ((down.position.x - gap / 2f) / step).toInt()
                         val r = ((down.position.y - gap / 2f) / step).toInt()
                         if (r !in 0 until rows || c !in 0 until cols) return@awaitEachGesture
@@ -196,6 +211,7 @@ fun PuzzleBoard(
                             val event = awaitPointerEvent()
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             change.consume()
+                            effects.wake()
                             val delta = change.position - down.position
                             if (!moved && delta.getDistance() > 6 * density) moved = true
                             if (!change.pressed) {
@@ -216,7 +232,8 @@ fun PuzzleBoard(
                     }
                 },
         ) {
-            val now = frame.longValue
+            frame.longValue // redraw whenever the loop above says so
+            val now = System.nanoTime()
             val t = (now % 3_600_000_000_000L) / 1e9f
             drawRect(Color(0xFF1C1448))
             drawImage(scenery)

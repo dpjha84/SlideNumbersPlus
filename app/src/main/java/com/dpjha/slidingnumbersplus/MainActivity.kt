@@ -114,7 +114,9 @@ class MainActivity : ComponentActivity() {
         }
 
         Box(Modifier.fillMaxSize().background(Ink)) {
-            Backdrop(Palette(spec.cityIndex, spec.mood), playing = screen == Screen.GAME, calm = calm, celebrate = vm.result != null)
+            // hold the city still behind the menus that cover it
+            val covered = screen != Screen.HOME && screen != Screen.GAME
+            Backdrop(Palette(spec.cityIndex, spec.mood), playing = screen == Screen.GAME, calm = calm || covered, celebrate = vm.result != null)
             if (screen != Screen.HOME && screen != Screen.GAME) Box(Modifier.fillMaxSize().background(Color(0xE0120A30)))
             val won = screen == Screen.GAME && vm.result != null
             if (won && vm.winShown) {

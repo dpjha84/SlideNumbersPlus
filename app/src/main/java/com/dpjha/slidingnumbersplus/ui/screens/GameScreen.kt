@@ -99,7 +99,7 @@ fun GameScreen(vm: AppViewModel, attempt: Attempt, calm: Boolean, onNext: () -> 
     val showWin = vm.winShown && result != null
 
     // reading vm.turn redraws the counters after each move
-    @Suppress("UNUSED_VARIABLE") val turn = vm.turn
+    val turn = vm.turn
     val moves = session.moves
     val free = session.freeLeft
 
@@ -142,7 +142,7 @@ fun GameScreen(vm: AppViewModel, attempt: Attempt, calm: Boolean, onNext: () -> 
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.BottomCenter) {
                 val cell = cellFor(maxWidth.value, maxHeight.value, spec.shape.rows, spec.shape.cols)
                 PuzzleBoard(
-                    session.engine, Palette(spec.cityIndex, spec.mood), player.skin, cell, effects, calm,
+                    session.engine, Palette(spec.cityIndex, spec.mood), player.skin, cell, effects, calm, turn,
                     onPress = { index ->
                         val value = session.engine.tileAt(index)
                         if (!vm.press(index)) effects.bump(value)
