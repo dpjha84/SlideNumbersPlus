@@ -4,9 +4,16 @@
     <string name="games_app_id" translatable="false"></string>
     <string name="gpgs_leaderboard_stars" translatable="false"></string>
     <string name="gpgs_achievement_first_win" translatable="false"></string>
-    <string name="gpgs_achievement_three_stars" translatable="false"></string>
-    <string name="gpgs_achievement_london_master" translatable="false"></string>
-    <string name="gpgs_achievement_paris_master" translatable="false"></string>
-    <string name="gpgs_achievement_new_york_master" translatable="false"></string>
-    <string name="gpgs_achievement_25_levels" translatable="false"></string>
+    <string name="gpgs_achievement_wins_10" translatable="false"></string>
+    <string name="gpgs_achievement_wins_50" translatable="false"></string>
+    <string name="gpgs_achievement_three_star_1" translatable="false"></string>
+    <string name="gpgs_achievement_three_star_25" translatable="false"></string>
+    <string name="gpgs_achievement_pure_5" translatable="false"></string>
+    <string name="gpgs_achievement_london" translatable="false"></string>
+    <string name="gpgs_achievement_paris" translatable="false"></string>
+    <string name="gpgs_achievement_new_york" translatable="false"></string>
+    <string name="gpgs_achievement_tour_1" translatable="false"></string>
+    <string name="gpgs_achievement_streak_3" translatable="false"></string>
+    <string name="gpgs_achievement_streak_7" translatable="false"></string>
+    <string name="gpgs_achievement_streak_30" translatable="false"></string>
 </resources>
