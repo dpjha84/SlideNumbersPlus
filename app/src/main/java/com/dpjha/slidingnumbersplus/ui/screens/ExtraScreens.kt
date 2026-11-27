@@ -148,14 +148,10 @@ fun ThemesScreen(vm: AppViewModel) {
                 (1..3).map { renderTile(it, it == 3, side, density, skin.id, palette, tileHue(palette, it, 3, 3), font) }
             }
             Card {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Canvas(Modifier.size(180.dp, 56.dp)) {
-                        tiles.forEachIndexed { i, image ->
-                            drawImage(image, dstOffset = androidx.compose.ui.unit.IntOffset(i * (side + (6 * density).roundToInt()), 0), dstSize = IntSize(side, side))
-                        }
-                    }
-                    Column(Modifier.weight(1f), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Title(skin.title, 18)
+                // The price gets its own row with the name, so long prices are never cut off.
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.weight(1f)) { Title(skin.title, 18) }
                         val price = if (skin.gems > 0) "${skin.gems} gems" else "${skin.coins} coins"
                         Pill(
                             if (selected) "In use" else if (owned) "Use" else price,
@@ -163,6 +159,11 @@ fun ThemesScreen(vm: AppViewModel) {
                             if (owned) Color(0xFF05332D) else Color(0xFF4A2400),
                             enabled = !selected,
                         ) { vm.chooseSkin(skin.id) }
+                    }
+                    Canvas(Modifier.size(180.dp, 56.dp)) {
+                        tiles.forEachIndexed { i, image ->
+                            drawImage(image, dstOffset = androidx.compose.ui.unit.IntOffset(i * (side + (6 * density).roundToInt()), 0), dstSize = IntSize(side, side))
+                        }
                     }
                 }
             }
