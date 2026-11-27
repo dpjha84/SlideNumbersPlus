@@ -114,11 +114,12 @@ object Levels {
     }
 
     /**
-     * The three-star target: about 1.7 times the best known solution plus two moves of grace,
-     * tightening in later tours to 1.5 times. Two stars reach one and a half times this.
+     * The three-star target: about 2.5 times the best known solution plus two moves of grace,
+     * tightening in later tours to 2 times. Two stars reach one and a half times this.
+     * Set from play testing: people take well over twice the shortest route.
      */
     fun par(spec: LevelSpec): Int {
-        val percent = (170 - 4 * spec.tour).coerceAtLeast(150)
+        val percent = (250 - 10 * spec.tour).coerceAtLeast(200)
         return (spec.best * percent + 99) / 100 + 2
     }
 

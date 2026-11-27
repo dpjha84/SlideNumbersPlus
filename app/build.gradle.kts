@@ -25,7 +25,7 @@ android {
         applicationId = "com.dpjha.slidingnumbersplus"
         minSdk = 23
         targetSdk = 36
-        versionCode = 302
+        versionCode = 303
         versionName = "3.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
