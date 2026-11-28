@@ -28,6 +28,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -173,12 +174,23 @@ class MainActivity : ComponentActivity() {
                         Screen.STATS -> StatsScreen(vm, if (ads.privacyChoicesNeeded) ({ ads.showPrivacyChoices() }) else null)
                     }
                 }
+                // lists fade out at the bottom, so a half-shown card reads as "scroll for more"
+                if (screen != Screen.HOME && screen != Screen.GAME) {
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(28.dp)
+                            .background(Brush.verticalGradient(listOf(Color.Transparent, Ink))),
+                    )
+                }
                 Message()
                 if (won && !calm) Celebration(vm.audio)
             }
             // space above keeps taps on the boosters away from the ad
             // no ad is loaded while the splash screen is drawn over it
-            if (ads.hasBanner) BannerAd(ads.ready && !splash, Modifier.padding(top = 6.dp))
+            if (ads.hasBanner) {
+                // a solid band with a divider keeps the ad visibly apart from the game
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Cream.copy(alpha = 0.18f)))
+                BannerAd(ads.ready && !splash, Modifier.background(Ink).padding(top = 12.dp))
+            }
             }
         }
     }

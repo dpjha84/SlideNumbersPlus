@@ -1,6 +1,8 @@
 package com.dpjha.slidingnumbersplus.services
 
 import android.app.Activity
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -34,6 +36,10 @@ class Ads(private val activity: Activity) {
         private set
     val hasRewarded = BuildConfig.ADS_REWARDED.isNotBlank()
     private var loadingRewarded = false
+    private var loadingInterstitial = false
+    private val handler = Handler(Looper.getMainLooper())
+    private var rewardedRetries = 0
+    private var interstitialRetries = 0
     /** True once consent is settled and the ad SDK has started. */
     var ready by mutableStateOf(false)
         private set
@@ -81,6 +87,7 @@ class Ads(private val activity: Activity) {
         RewardedAd.load(activity, BuildConfig.ADS_REWARDED, AdRequest.Builder().build(), object : RewardedAdLoadCallback() {
             override fun onAdLoaded(ad: RewardedAd) {
                 loadingRewarded = false
+                rewardedRetries = 0
                 rewarded = ad
                 rewardedReady = true
             }
@@ -88,17 +95,32 @@ class Ads(private val activity: Activity) {
             override fun onAdFailedToLoad(error: LoadAdError) {
                 loadingRewarded = false
                 rewardedReady = false
+                retryLater(rewardedRetries++) { loadRewarded() }
             }
         })
     }
 
     private fun loadInterstitial() {
-        if (BuildConfig.ADS_INTERSTITIAL.isBlank() || interstitial != null) return
+        if (BuildConfig.ADS_INTERSTITIAL.isBlank() || interstitial != null || loadingInterstitial) return
+        loadingInterstitial = true
         InterstitialAd.load(activity, BuildConfig.ADS_INTERSTITIAL, AdRequest.Builder().build(), object : InterstitialAdLoadCallback() {
             override fun onAdLoaded(ad: InterstitialAd) {
+                loadingInterstitial = false
+                interstitialRetries = 0
                 interstitial = ad
             }
+
+            override fun onAdFailedToLoad(error: LoadAdError) {
+                loadingInterstitial = false
+                retryLater(interstitialRetries++) { loadInterstitial() }
+            }
         })
+    }
+
+    /** A few spaced-out retries after an empty answer: after 30 s, 1 min and 2 min, then no more. */
+    private fun retryLater(attempt: Int, load: () -> Unit) {
+        if (attempt >= 3) return
+        handler.postDelayed({ if (!activity.isDestroyed) load() }, 30_000L shl attempt)
     }
 
     /** Tries again after a load that failed, for example while offline. */

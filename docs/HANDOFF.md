@@ -4,7 +4,7 @@ Name (chosen by DP, replaces "Sliding Numbers+"): Play Store title **Sliding Num
 
 ## Who and what
 - Owner: DP, studio **Pixel Pocket** (Instagram @pixelpocket.apps).
-- Native Kotlin/Compose rebuild of **Sliding Numbers+**, now Sliding Numbers: City Puzzle (`com.dpjha.slidingnumbersplus`), versionCode 305, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
+- Native Kotlin/Compose rebuild of **Sliding Numbers+**, now Sliding Numbers: City Puzzle (`com.dpjha.slidingnumbersplus`), versionCode 306, upgrading the existing Play listing. It follows his ColorSort game's systems and polish, with sliding-puzzle gameplay.
 - Work is on branch `v3-rewrite`. `main` holds an unrelated old React project.
 - There is no Android SDK in the cloud workspace: **CI is the only compiler**. Push, then read the result.
 
@@ -49,3 +49,8 @@ DP approved the web preview and asked for the full build. The reference is `docs
 Richer art and music for cities 8 to 21, city arrival card, daily leaderboard, level-jump debug shortcut, store graphics and launch reel.
 
 Music (DP, 27 Nov): silent outside the puzzle screen, fades in over about 2.5 s on a puzzle, and stays off if another app is already playing unless the player switches it on by hand.
+
+## Ads
+
+Nothing may cover the banner and the banner may cover nothing: it sits in its own band under a divider.
+Failed full-screen ad loads are retried three times (30 s, 60 s, 120 s). The AdMob account needs a published consent message for this app.
